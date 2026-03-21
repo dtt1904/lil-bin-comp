@@ -1,13 +1,13 @@
 "use client";
 
 import { useState, useMemo } from "react";
+import { useRouter } from "next/navigation";
 import {
   DollarSign,
   AlertTriangle,
   CheckCircle2,
   FileText,
   X,
-  Send,
   CreditCard,
 } from "lucide-react";
 import { formatCurrency, formatRelativeTime } from "@/lib/helpers";
@@ -23,6 +23,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
+import { api } from "@/lib/api-client";
 
 const INVOICE_STATUS_COLOR: Record<string, string> = {
   DRAFT: "bg-zinc-500/15 text-zinc-400 border-zinc-500/20",
@@ -64,12 +65,31 @@ export function InvoicesPageClient({
   invoices,
   workspaces,
 }: InvoicesPageClientProps) {
+  const router = useRouter();
   const [selectedStatuses, setSelectedStatuses] = useState<Set<string>>(
     new Set()
   );
   const [selectedWorkspace, setSelectedWorkspace] = useState<string | null>(
     null
   );
+  const [markingPaidId, setMarkingPaidId] = useState<string | null>(null);
+
+  async function markPaid(invoiceId: string) {
+    setMarkingPaidId(invoiceId);
+    const result = await api(`/invoices/${invoiceId}`, {
+      method: "PATCH",
+      body: JSON.stringify({
+        status: "PAID",
+        paidAt: new Date().toISOString(),
+      }),
+    });
+    setMarkingPaidId(null);
+    if (!result.ok) {
+      alert(result.error || "Failed to mark invoice as paid");
+      return;
+    }
+    router.refresh();
+  }
 
   function toggleStatus(status: string) {
     setSelectedStatuses((prev) => {
@@ -346,23 +366,14 @@ export function InvoicesPageClient({
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-1">
-                        {(inv.status === "SENT" ||
-                          inv.status === "OVERDUE") && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-7 gap-1 text-xs"
-                          >
-                            <Send className="size-3" />
-                            Remind
-                          </Button>
-                        )}
                         {inv.status !== "PAID" &&
                           inv.status !== "CANCELLED" && (
                             <Button
                               variant="ghost"
                               size="sm"
                               className="h-7 gap-1 text-xs"
+                              disabled={markingPaidId === inv.id}
+                              onClick={() => markPaid(inv.id)}
                             >
                               <CreditCard className="size-3" />
                               Mark Paid
@@ -457,15 +468,9 @@ export function InvoicesPageClient({
                           <Button
                             variant="ghost"
                             size="sm"
-                            className="h-7 gap-1 text-xs text-red-400 hover:text-red-300"
-                          >
-                            <Send className="size-3" />
-                            Send Reminder
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
                             className="h-7 gap-1 text-xs"
+                            disabled={markingPaidId === inv.id}
+                            onClick={() => markPaid(inv.id)}
                           >
                             <CreditCard className="size-3" />
                             Mark Paid

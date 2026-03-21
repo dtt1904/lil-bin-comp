@@ -13,7 +13,6 @@ import {
   Users,
   Puzzle,
   Key,
-  Pencil,
   Trash2,
   Wrench,
   ExternalLink,
@@ -150,7 +149,6 @@ export function SettingsPageClient({
   users,
   workspaces,
 }: SettingsPageClientProps) {
-  const [, setEditMode] = useState(false);
 
   return (
     <div className="mx-auto max-w-[1400px] space-y-6">
@@ -198,14 +196,6 @@ export function SettingsPageClient({
                     Basic organization information
                   </CardDescription>
                 </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setEditMode(true)}
-                >
-                  <Pencil className="h-3.5 w-3.5" />
-                  Edit
-                </Button>
               </div>
             </CardHeader>
             <CardContent>

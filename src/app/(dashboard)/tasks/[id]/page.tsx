@@ -133,7 +133,14 @@ export default async function TaskDetailPage({
               {task.id} &middot; Created {formatRelativeTime(task.createdAt)}
             </p>
           </div>
-          <TaskActions taskId={task.id} currentStatus={task.status} />
+          <TaskActions
+            taskId={task.id}
+            currentStatus={task.status}
+            title={task.title}
+            description={task.description}
+            priority={task.priority}
+            dueDate={task.dueDate ? task.dueDate.toISOString() : null}
+          />
         </div>
 
         {/* Main Layout */}
