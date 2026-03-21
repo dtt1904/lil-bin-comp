@@ -1,9 +1,24 @@
+export const dynamic = "force-dynamic";
 import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { workspaces } from "@/lib/mock-data";
+import { prisma } from "@/lib/db";
 import { WorkspaceCard } from "@/components/workspaces/workspace-card";
 
-export default function WorkspacesPage() {
+export default async function WorkspacesPage() {
+  const workspaces = await prisma.workspace.findMany({
+    orderBy: { name: "asc" },
+    include: {
+      _count: {
+        select: {
+          departments: true,
+          agents: true,
+          tasks: true,
+          projects: true,
+        },
+      },
+    },
+  });
+
   return (
     <div className="mx-auto max-w-[1400px]">
       <div className="mb-8 flex items-center justify-between">
@@ -21,7 +36,18 @@ export default function WorkspacesPage() {
 
       <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
         {workspaces.map((ws) => (
-          <WorkspaceCard key={ws.id} workspace={ws} />
+          <WorkspaceCard
+            key={ws.id}
+            workspace={{
+              id: ws.id,
+              name: ws.name,
+              slug: ws.slug,
+              description: ws.description,
+              type: ws.type,
+              createdAt: ws.createdAt.toISOString(),
+            }}
+            counts={ws._count}
+          />
         ))}
       </div>
     </div>

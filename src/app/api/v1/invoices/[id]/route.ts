@@ -1,11 +1,11 @@
 import { NextRequest } from "next/server";
-import { store, generateId } from "@/lib/store";
+import { prisma } from "@/lib/db";
 import {
   authenticateRequest,
   jsonResponse,
   errorResponse,
 } from "@/lib/api-auth";
-import { InvoiceStatus, LogLevel } from "@/lib/types";
+import { InvoiceStatus, LogLevel } from "@/generated/prisma/enums";
 
 const VALID_STATUSES = Object.values(InvoiceStatus);
 
@@ -17,10 +17,17 @@ export async function GET(
   if (!auth.ok) return auth.response;
 
   const { id } = await params;
-  const invoice = store.findById(store.invoiceSnapshots, id);
-  if (!invoice) return errorResponse("Invoice not found", 404);
 
-  return jsonResponse({ data: invoice });
+  try {
+    const invoice = await prisma.invoiceSnapshot.findUnique({ where: { id } });
+    if (!invoice) return errorResponse("Invoice not found", 404);
+
+    return jsonResponse({ data: invoice });
+  } catch (err) {
+    return errorResponse("Failed to fetch invoice", 500, {
+      message: (err as Error).message,
+    });
+  }
 }
 
 export async function PATCH(
@@ -31,8 +38,6 @@ export async function PATCH(
   if (!auth.ok) return auth.response;
 
   const { id } = await params;
-  const existing = store.findById(store.invoiceSnapshots, id);
-  if (!existing) return errorResponse("Invoice not found", 404);
 
   let body: Record<string, unknown>;
   try {
@@ -41,44 +46,60 @@ export async function PATCH(
     return errorResponse("Invalid JSON body", 400);
   }
 
-  if (body.status !== undefined && !VALID_STATUSES.includes(body.status as InvoiceStatus)) {
+  if (
+    body.status !== undefined &&
+    !VALID_STATUSES.includes(body.status as InvoiceStatus)
+  ) {
     return errorResponse(
       `Invalid status. Must be one of: ${VALID_STATUSES.join(", ")}`,
       400
     );
   }
 
-  const now = new Date();
-  const updates: Record<string, unknown> = { updatedAt: now };
+  try {
+    const existing = await prisma.invoiceSnapshot.findUnique({
+      where: { id },
+    });
+    if (!existing) return errorResponse("Invoice not found", 404);
 
-  const allowedFields = ["status", "amount", "dueDate", "paidAt", "notes", "stripePaymentId"];
-  for (const field of allowedFields) {
-    if (body[field] !== undefined) {
-      updates[field] = (field === "dueDate" || field === "paidAt")
-        ? new Date(body[field] as string)
-        : body[field];
+    const data: Record<string, unknown> = {};
+    if (body.status !== undefined) data.status = body.status;
+    if (body.amount !== undefined) data.amount = body.amount;
+    if (body.dueDate !== undefined) data.dueDate = new Date(body.dueDate as string);
+    if (body.paidAt !== undefined) data.paidAt = new Date(body.paidAt as string);
+    if (body.customerName !== undefined) data.customerName = body.customerName;
+    if (body.customerEmail !== undefined) data.customerEmail = body.customerEmail;
+    if (body.notes !== undefined) data.items = { notes: body.notes };
+    if (body.items !== undefined) data.items = body.items;
+
+    if (body.status === InvoiceStatus.PAID && !body.paidAt) {
+      data.paidAt = new Date();
     }
-  }
 
-  if (body.status === InvoiceStatus.PAID && !body.paidAt) {
-    updates.paidAt = now;
-  }
+    const updated = await prisma.invoiceSnapshot.update({
+      where: { id },
+      data,
+    });
 
-  const updated = store.update(store.invoiceSnapshots, id, updates);
+    if (body.status && body.status !== existing.status) {
+      await prisma.logEvent.create({
+        data: {
+          organizationId: existing.organizationId,
+          workspaceId: existing.workspaceId,
+          level: LogLevel.INFO,
+          source: "api",
+          message: `Invoice ${existing.invoiceNumber} status: ${existing.status} → ${body.status}`,
+          metadata: { invoiceId: id, from: existing.status, to: body.status },
+        },
+      });
+    }
 
-  if (body.status && body.status !== existing.status) {
-    store.insert(store.logEvents, {
-      id: generateId("log"),
-      organizationId: auth.ctx.organizationId,
-      workspaceId: existing.workspaceId,
-      level: LogLevel.INFO,
-      message: `Invoice ${existing.invoiceNumber} status: ${existing.status} → ${body.status}`,
-      metadata: { invoiceId: id, from: existing.status, to: body.status },
-      timestamp: now,
+    return jsonResponse({ data: updated });
+  } catch (err) {
+    return errorResponse("Failed to update invoice", 500, {
+      message: (err as Error).message,
     });
   }
-
-  return jsonResponse({ data: updated });
 }
 
 export async function DELETE(
@@ -89,9 +110,18 @@ export async function DELETE(
   if (!auth.ok) return auth.response;
 
   const { id } = await params;
-  const existing = store.findById(store.invoiceSnapshots, id);
-  if (!existing) return errorResponse("Invoice not found", 404);
 
-  store.remove(store.invoiceSnapshots, id);
-  return jsonResponse({ success: true });
+  try {
+    const existing = await prisma.invoiceSnapshot.findUnique({
+      where: { id },
+    });
+    if (!existing) return errorResponse("Invoice not found", 404);
+
+    await prisma.invoiceSnapshot.delete({ where: { id } });
+    return jsonResponse({ success: true });
+  } catch (err) {
+    return errorResponse("Failed to delete invoice", 500, {
+      message: (err as Error).message,
+    });
+  }
 }

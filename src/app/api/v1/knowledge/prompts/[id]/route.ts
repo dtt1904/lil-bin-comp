@@ -1,10 +1,10 @@
 import { NextRequest } from "next/server";
+import { prisma } from "@/lib/db";
 import {
   authenticateRequest,
   jsonResponse,
   errorResponse,
 } from "@/lib/api-auth";
-import { store } from "@/lib/store";
 
 export async function GET(
   req: NextRequest,
@@ -14,10 +14,15 @@ export async function GET(
   if (!auth.ok) return auth.response;
 
   const { id } = await params;
-  const prompt = store.findById(store.promptTemplates, id);
-  if (!prompt) return errorResponse("Prompt template not found", 404);
 
-  return jsonResponse({ data: prompt });
+  try {
+    const prompt = await prisma.promptTemplate.findUnique({ where: { id } });
+    if (!prompt) return errorResponse("Prompt template not found", 404);
+
+    return jsonResponse({ data: prompt });
+  } catch (err) {
+    return errorResponse(`Failed to fetch prompt: ${err instanceof Error ? err.message : err}`, 500);
+  }
 }
 
 export async function PATCH(
@@ -28,20 +33,28 @@ export async function PATCH(
   if (!auth.ok) return auth.response;
 
   const { id } = await params;
-  const existing = store.findById(store.promptTemplates, id);
-  if (!existing) return errorResponse("Prompt template not found", 404);
 
-  const body = await req.json();
-  const updated = store.update(store.promptTemplates, id, {
-    ...(body.name !== undefined && { name: body.name }),
-    ...(body.description !== undefined && { description: body.description }),
-    ...(body.template !== undefined && { template: body.template }),
-    ...(body.variables !== undefined && { variables: body.variables }),
-    ...(body.visibility !== undefined && { visibility: body.visibility }),
-    updatedAt: new Date(),
-  });
+  try {
+    const existing = await prisma.promptTemplate.findUnique({ where: { id } });
+    if (!existing) return errorResponse("Prompt template not found", 404);
 
-  return jsonResponse({ data: updated });
+    const body = await req.json();
+    const updated = await prisma.promptTemplate.update({
+      where: { id },
+      data: {
+        ...(body.name !== undefined && { name: body.name }),
+        ...(body.description !== undefined && { description: body.description }),
+        ...(body.template !== undefined && { template: body.template }),
+        ...(body.variables !== undefined && { variables: body.variables }),
+        ...(body.visibility !== undefined && { visibility: body.visibility }),
+        ...(body.tags !== undefined && { tags: body.tags }),
+      },
+    });
+
+    return jsonResponse({ data: updated });
+  } catch (err) {
+    return errorResponse(`Failed to update prompt: ${err instanceof Error ? err.message : err}`, 500);
+  }
 }
 
 export async function DELETE(
@@ -52,8 +65,14 @@ export async function DELETE(
   if (!auth.ok) return auth.response;
 
   const { id } = await params;
-  const removed = store.remove(store.promptTemplates, id);
-  if (!removed) return errorResponse("Prompt template not found", 404);
 
-  return jsonResponse({ success: true });
+  try {
+    const existing = await prisma.promptTemplate.findUnique({ where: { id } });
+    if (!existing) return errorResponse("Prompt template not found", 404);
+
+    await prisma.promptTemplate.delete({ where: { id } });
+    return jsonResponse({ success: true });
+  } catch (err) {
+    return errorResponse(`Failed to delete prompt: ${err instanceof Error ? err.message : err}`, 500);
+  }
 }

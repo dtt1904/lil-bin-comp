@@ -1,12 +1,12 @@
 import { NextRequest } from "next/server";
-import { store, generateId } from "@/lib/store";
+import { prisma } from "@/lib/db";
 import {
   authenticateRequest,
   jsonResponse,
   errorResponse,
   parseSearchParams,
 } from "@/lib/api-auth";
-import { ApprovalStatus, LogLevel, Severity } from "@/lib/types";
+import { ApprovalStatus, LogLevel, Severity } from "@/generated/prisma/enums";
 
 export async function GET(req: NextRequest) {
   const auth = authenticateRequest(req);
@@ -16,25 +16,29 @@ export async function GET(req: NextRequest) {
   const limit = Math.min(parseInt(params.limit || "50", 10) || 50, 200);
   const offset = parseInt(params.offset || "0", 10) || 0;
 
-  let results = store.approvals;
+  try {
+    const where: Record<string, unknown> = {};
 
-  if (params.status) {
-    results = store.filter(results, (a) => a.status === params.status);
-  }
-  if (params.taskId) {
-    results = store.filter(results, (a) => a.taskId === params.taskId);
-  }
-  if (params.workspaceId) {
-    results = store.filter(results, (a) => {
-      const task = store.findById(store.tasks, a.taskId);
-      return task?.workspaceId === params.workspaceId;
-    });
-  }
+    if (params.status) where.status = params.status as ApprovalStatus;
+    if (params.taskId) where.taskId = params.taskId;
+    if (params.workspaceId) {
+      where.task = { workspaceId: params.workspaceId };
+    }
 
-  const total = results.length;
-  const data = results.slice(offset, offset + limit);
+    const [data, total] = await Promise.all([
+      prisma.approval.findMany({
+        where,
+        skip: offset,
+        take: limit,
+        orderBy: { createdAt: "desc" },
+      }),
+      prisma.approval.count({ where }),
+    ]);
 
-  return jsonResponse({ data, meta: { total, limit, offset } });
+    return jsonResponse({ data, meta: { total, limit, offset } });
+  } catch (err) {
+    return errorResponse(`Failed to fetch approvals: ${err instanceof Error ? err.message : err}`, 500);
+  }
 }
 
 export async function POST(req: NextRequest) {
@@ -47,40 +51,47 @@ export async function POST(req: NextRequest) {
     return errorResponse("taskId and requestedById are required");
   }
 
-  const task = store.findById(store.tasks, body.taskId);
-  if (!task) return errorResponse("Task not found", 404);
+  try {
+    const task = await prisma.task.findUnique({ where: { id: body.taskId } });
+    if (!task) return errorResponse("Task not found", 404);
 
-  const now = new Date();
-  const approval = store.insert(store.approvals, {
-    id: generateId("appr"),
-    taskId: body.taskId,
-    requestedById: body.requestedById,
-    status: ApprovalStatus.PENDING,
-    reason: body.reason ?? undefined,
-    createdAt: now,
-  });
+    const approval = await prisma.approval.create({
+      data: {
+        taskId: body.taskId,
+        requestedById: body.requestedById,
+        title: body.title ?? `Approval for: ${task.title}`,
+        description: body.reason ?? body.description ?? undefined,
+        status: ApprovalStatus.PENDING,
+        severity: (body.severity as Severity) ?? Severity.MEDIUM,
+      },
+    });
 
-  const notifyUserId = task.assignedToUserId || auth.ctx.organizationId;
-  store.insert(store.notifications, {
-    id: generateId("notif"),
-    userId: notifyUserId,
-    title: "New Approval Request",
-    message: `Approval requested for task "${task.title}"${body.reason ? `: ${body.reason}` : ""}`,
-    severity: body.severity ?? Severity.MEDIUM,
-    isRead: false,
-    linkUrl: `/approvals/${approval.id}`,
-    createdAt: now,
-  });
+    await prisma.notification.create({
+      data: {
+        type: "approval_request",
+        userId: task.createdByUserId ?? undefined,
+        organizationId: task.organizationId,
+        workspaceId: task.workspaceId,
+        title: "New Approval Request",
+        message: `Approval requested for task "${task.title}"${body.reason ? `: ${body.reason}` : ""}`,
+        severity: (body.severity as Severity) ?? Severity.MEDIUM,
+        link: `/approvals/${approval.id}`,
+      },
+    });
 
-  store.insert(store.logEvents, {
-    id: generateId("log"),
-    organizationId: auth.ctx.organizationId,
-    workspaceId: task.workspaceId,
-    taskId: body.taskId,
-    level: LogLevel.INFO,
-    message: `Approval ${approval.id} requested by ${body.requestedById}`,
-    timestamp: now,
-  });
+    await prisma.logEvent.create({
+      data: {
+        organizationId: task.organizationId,
+        workspaceId: task.workspaceId,
+        taskId: body.taskId,
+        level: LogLevel.INFO,
+        source: "api",
+        message: `Approval ${approval.id} requested by ${body.requestedById}`,
+      },
+    });
 
-  return jsonResponse({ data: approval }, 201);
+    return jsonResponse({ data: approval }, 201);
+  } catch (err) {
+    return errorResponse(`Failed to create approval: ${err instanceof Error ? err.message : err}`, 500);
+  }
 }

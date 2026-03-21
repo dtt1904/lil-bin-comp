@@ -1,27 +1,62 @@
-import { jsonResponse } from "@/lib/api-auth";
-import { store } from "@/lib/store";
+import { prisma } from "@/lib/db";
+import { jsonResponse, errorResponse } from "@/lib/api-auth";
 
 const startTime = Date.now();
 
 export async function GET() {
-  return jsonResponse({
-    status: "ok",
-    version: "1.0.0",
-    uptime: Date.now() - startTime,
-    timestamp: new Date().toISOString(),
-    counts: {
-      workspaces: store.workspaces.length,
-      departments: store.departments.length,
-      agents: store.agents.length,
-      tasks: store.tasks.length,
-      projects: store.projects.length,
-      listings: store.listings.length,
-      mediaAssets: store.mediaAssets.length,
-      postDrafts: store.postDrafts.length,
-      publishedPosts: store.publishedPosts.length,
-      shareTasks: store.shareTasks.length,
-      invoices: store.invoiceSnapshots.length,
-      users: store.users.length,
-    },
-  });
+  try {
+    const [
+      workspaces,
+      departments,
+      agents,
+      tasks,
+      projects,
+      listings,
+      mediaAssets,
+      postDrafts,
+      publishedPosts,
+      shareTasks,
+      invoices,
+      users,
+    ] = await Promise.all([
+      prisma.workspace.count(),
+      prisma.department.count(),
+      prisma.agent.count(),
+      prisma.task.count(),
+      prisma.project.count(),
+      prisma.listing.count(),
+      prisma.mediaAsset.count(),
+      prisma.postDraft.count(),
+      prisma.publishedPost.count(),
+      prisma.shareTask.count(),
+      prisma.invoiceSnapshot.count(),
+      prisma.user.count(),
+    ]);
+
+    return jsonResponse({
+      status: "ok",
+      version: "1.0.0",
+      uptime: Date.now() - startTime,
+      timestamp: new Date().toISOString(),
+      counts: {
+        workspaces,
+        departments,
+        agents,
+        tasks,
+        projects,
+        listings,
+        mediaAssets,
+        postDrafts,
+        publishedPosts,
+        shareTasks,
+        invoices,
+        users,
+      },
+    });
+  } catch (err) {
+    return errorResponse("Health check failed", 500, {
+      status: "error",
+      message: (err as Error).message,
+    });
+  }
 }

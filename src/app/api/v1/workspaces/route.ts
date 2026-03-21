@@ -5,9 +5,8 @@ import {
   errorResponse,
   parseSearchParams,
 } from "@/lib/api-auth";
-import { store, generateId } from "@/lib/store";
-import { WorkspaceType } from "@/lib/types";
-import type { Workspace } from "@/lib/types";
+import { prisma } from "@/lib/db";
+import { WorkspaceType } from "@/generated/prisma/enums";
 
 const VALID_WORKSPACE_TYPES = Object.values(WorkspaceType);
 
@@ -15,9 +14,9 @@ export async function GET(req: NextRequest) {
   const auth = authenticateRequest(req);
   if (!auth.ok) return auth.response;
 
-  const { type } = parseSearchParams(req);
+  const { type, limit: rawLimit, offset: rawOffset } = parseSearchParams(req);
 
-  let results = store.workspaces;
+  const where: Record<string, unknown> = {};
 
   if (type) {
     if (!VALID_WORKSPACE_TYPES.includes(type as WorkspaceType)) {
@@ -26,13 +25,22 @@ export async function GET(req: NextRequest) {
         400
       );
     }
-    results = store.filter(
-      store.workspaces,
-      (w) => w.type === (type as WorkspaceType)
-    );
+    where.type = type as WorkspaceType;
   }
 
-  return jsonResponse({ data: results, meta: { total: results.length } });
+  const limit = rawLimit ? parseInt(rawLimit, 10) : 50;
+  const offset = rawOffset ? parseInt(rawOffset, 10) : 0;
+
+  try {
+    const [results, total] = await Promise.all([
+      prisma.workspace.findMany({ where, take: limit, skip: offset }),
+      prisma.workspace.count({ where }),
+    ]);
+
+    return jsonResponse({ data: results, meta: { total, limit, offset } });
+  } catch {
+    return errorResponse("Internal error", 500);
+  }
 }
 
 export async function POST(req: NextRequest) {
@@ -46,12 +54,11 @@ export async function POST(req: NextRequest) {
     return errorResponse("Invalid JSON body", 400);
   }
 
-  const { name, slug, type, description, iconUrl } = body as {
+  const { name, slug, type, description } = body as {
     name?: string;
     slug?: string;
     type?: string;
     description?: string;
-    iconUrl?: string;
   };
 
   const missing: string[] = [];
@@ -69,28 +76,22 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const slugExists = store.filter(
-    store.workspaces,
-    (w) => w.slug === slug
-  ).length > 0;
-  if (slugExists) {
-    return errorResponse(`Workspace with slug "${slug}" already exists`, 409);
+  try {
+    const workspace = await prisma.workspace.create({
+      data: {
+        organizationId: auth.ctx.organizationId,
+        name: name!,
+        slug: slug!,
+        type: type as WorkspaceType,
+        description,
+      },
+    });
+
+    return jsonResponse({ data: workspace }, 201);
+  } catch (e: any) {
+    if (e.code === "P2002") {
+      return errorResponse(`Workspace with slug "${slug}" already exists`, 409);
+    }
+    return errorResponse("Internal error", 500);
   }
-
-  const now = new Date();
-  const workspace: Workspace = {
-    id: generateId("ws"),
-    organizationId: auth.ctx.organizationId,
-    name: name!,
-    slug: slug!,
-    type: type as WorkspaceType,
-    description: description ?? undefined,
-    iconUrl: iconUrl ?? undefined,
-    createdAt: now,
-    updatedAt: now,
-  };
-
-  store.insert(store.workspaces, workspace);
-
-  return jsonResponse({ data: workspace }, 201);
 }

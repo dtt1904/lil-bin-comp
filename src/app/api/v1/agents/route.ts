@@ -5,27 +5,26 @@ import {
   errorResponse,
   parseSearchParams,
 } from "@/lib/api-auth";
-import { store, generateId } from "@/lib/store";
-import { AgentStatus, Visibility } from "@/lib/types";
-import type { Agent } from "@/lib/types";
+import { prisma } from "@/lib/db";
+import { AgentStatus } from "@/generated/prisma/enums";
 
 const VALID_STATUSES = Object.values(AgentStatus);
-const VALID_VISIBILITY = Object.values(Visibility);
 
 export async function GET(req: NextRequest) {
   const auth = authenticateRequest(req);
   if (!auth.ok) return auth.response;
 
-  const { workspaceId, departmentId, status } = parseSearchParams(req);
+  const {
+    workspaceId,
+    departmentId,
+    status,
+    limit: rawLimit,
+    offset: rawOffset,
+  } = parseSearchParams(req);
 
-  let results = store.agents;
-
-  if (workspaceId) {
-    results = store.filter(results, (a) => a.workspaceId === workspaceId);
-  }
-  if (departmentId) {
-    results = store.filter(results, (a) => a.departmentId === departmentId);
-  }
+  const where: Record<string, unknown> = {};
+  if (workspaceId) where.workspaceId = workspaceId;
+  if (departmentId) where.departmentId = departmentId;
   if (status) {
     if (!VALID_STATUSES.includes(status as AgentStatus)) {
       return errorResponse(
@@ -33,13 +32,22 @@ export async function GET(req: NextRequest) {
         400
       );
     }
-    results = store.filter(
-      results,
-      (a) => a.status === (status as AgentStatus)
-    );
+    where.status = status as AgentStatus;
   }
 
-  return jsonResponse({ data: results, meta: { total: results.length } });
+  const limit = rawLimit ? parseInt(rawLimit, 10) : 50;
+  const offset = rawOffset ? parseInt(rawOffset, 10) : 0;
+
+  try {
+    const [results, total] = await Promise.all([
+      prisma.agent.findMany({ where, take: limit, skip: offset }),
+      prisma.agent.count({ where }),
+    ]);
+
+    return jsonResponse({ data: results, meta: { total, limit, offset } });
+  } catch {
+    return errorResponse("Internal error", 500);
+  }
 }
 
 export async function POST(req: NextRequest) {
@@ -57,28 +65,30 @@ export async function POST(req: NextRequest) {
     name,
     slug,
     description,
+    role,
     workspaceId,
     departmentId,
     model,
     provider,
     systemPrompt,
-    visibility,
-    capabilities,
-    tags,
     status,
+    temperature,
+    codename,
+    avatarUrl,
   } = body as {
     name?: string;
     slug?: string;
     description?: string;
+    role?: string;
     workspaceId?: string;
     departmentId?: string;
     model?: string;
     provider?: string;
     systemPrompt?: string;
-    visibility?: string;
-    capabilities?: string[];
-    tags?: string[];
     status?: string;
+    temperature?: number;
+    codename?: string;
+    avatarUrl?: string;
   };
 
   const missing: string[] = [];
@@ -97,60 +107,61 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const resolvedVisibility = visibility ?? Visibility.WORKSPACE;
-  if (!VALID_VISIBILITY.includes(resolvedVisibility as Visibility)) {
-    return errorResponse(
-      `Invalid visibility. Must be one of: ${VALID_VISIBILITY.join(", ")}`,
-      400
-    );
-  }
-
-  const slugExists =
-    store.filter(store.agents, (a) => a.slug === slug).length > 0;
-  if (slugExists) {
-    return errorResponse(`Agent with slug "${slug}" already exists`, 409);
-  }
-
   if (workspaceId) {
-    const workspace = store.findById(store.workspaces, workspaceId);
-    if (!workspace) {
-      return errorResponse(`Workspace "${workspaceId}" not found`, 400, {
-        field: "workspaceId",
+    try {
+      const workspace = await prisma.workspace.findUnique({
+        where: { id: workspaceId },
       });
+      if (!workspace) {
+        return errorResponse(`Workspace "${workspaceId}" not found`, 400, {
+          field: "workspaceId",
+        });
+      }
+    } catch {
+      return errorResponse("Internal error", 500);
     }
   }
 
   if (departmentId) {
-    const department = store.findById(store.departments, departmentId);
-    if (!department) {
-      return errorResponse(`Department "${departmentId}" not found`, 400, {
-        field: "departmentId",
+    try {
+      const department = await prisma.department.findUnique({
+        where: { id: departmentId },
       });
+      if (!department) {
+        return errorResponse(`Department "${departmentId}" not found`, 400, {
+          field: "departmentId",
+        });
+      }
+    } catch {
+      return errorResponse("Internal error", 500);
     }
   }
 
-  const now = new Date();
-  const agent: Agent = {
-    id: generateId("agent"),
-    organizationId: auth.ctx.organizationId,
-    workspaceId: workspaceId ?? undefined,
-    departmentId: departmentId ?? undefined,
-    name: name!,
-    slug: slug!,
-    description: description ?? undefined,
-    status: (status as AgentStatus) ?? AgentStatus.IDLE,
-    model: model!,
-    provider: provider!,
-    systemPrompt: systemPrompt ?? undefined,
-    visibility: resolvedVisibility as Visibility,
-    capabilities: capabilities ?? [],
-    tags: tags ?? [],
-    createdById: "user-1",
-    createdAt: now,
-    updatedAt: now,
-  };
+  try {
+    const agent = await prisma.agent.create({
+      data: {
+        organizationId: auth.ctx.organizationId,
+        name: name!,
+        slug: slug!,
+        role: role || "assistant",
+        model: model!,
+        provider: provider!,
+        systemPrompt: systemPrompt ?? "",
+        ...(status ? { status: status as AgentStatus } : {}),
+        description,
+        workspaceId,
+        departmentId,
+        temperature,
+        codename,
+        avatarUrl,
+      },
+    });
 
-  store.insert(store.agents, agent);
-
-  return jsonResponse({ data: agent }, 201);
+    return jsonResponse({ data: agent }, 201);
+  } catch (e: any) {
+    if (e.code === "P2002") {
+      return errorResponse(`Agent with slug "${slug}" already exists`, 409);
+    }
+    return errorResponse("Internal error", 500);
+  }
 }

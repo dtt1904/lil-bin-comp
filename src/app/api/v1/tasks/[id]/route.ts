@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { store, generateId } from "@/lib/store";
+import { prisma } from "@/lib/db";
 import {
   authenticateRequest,
   jsonResponse,
@@ -10,7 +10,7 @@ import {
   ApprovalStatus,
   LogLevel,
   Severity,
-} from "@/lib/types";
+} from "@/generated/prisma/enums";
 
 export async function GET(
   req: NextRequest,
@@ -20,17 +20,23 @@ export async function GET(
   if (!auth.ok) return auth.response;
 
   const { id } = await params;
-  const task = store.findById(store.tasks, id);
-  if (!task) return errorResponse("Task not found", 404);
 
-  const runs = store.filter(store.taskRuns, (r) => r.taskId === id);
-  const comments = store.filter(store.comments, (c) => c.taskId === id);
-  const dependencies = store.filter(store.taskDependencies, (d) => d.taskId === id);
-  const approvals = store.filter(store.approvals, (a) => a.taskId === id);
+  try {
+    const task = await prisma.task.findUnique({
+      where: { id },
+      include: {
+        taskRuns: true,
+        comments: true,
+        dependsOn: true,
+        approvals: true,
+      },
+    });
+    if (!task) return errorResponse("Task not found", 404);
 
-  return jsonResponse({
-    data: { ...task, runs, comments, dependencies, approvals },
-  });
+    return jsonResponse({ data: task });
+  } catch (err) {
+    return errorResponse(`Failed to fetch task: ${err instanceof Error ? err.message : err}`, 500);
+  }
 }
 
 export async function PATCH(
@@ -41,64 +47,84 @@ export async function PATCH(
   if (!auth.ok) return auth.response;
 
   const { id } = await params;
-  const task = store.findById(store.tasks, id);
-  if (!task) return errorResponse("Task not found", 404);
 
-  const body = await req.json();
-  const now = new Date();
-  const oldStatus = task.status;
+  try {
+    const task = await prisma.task.findUnique({ where: { id } });
+    if (!task) return errorResponse("Task not found", 404);
 
-  const updated = store.update(store.tasks, id, {
-    ...body,
-    updatedAt: now,
-    ...(body.dueDate ? { dueDate: new Date(body.dueDate) } : {}),
-  });
+    const body = await req.json();
+    const oldStatus = task.status;
 
-  if (body.status && body.status !== oldStatus) {
-    store.insert(store.logEvents, {
-      id: generateId("log"),
-      organizationId: auth.ctx.organizationId,
-      workspaceId: task.workspaceId,
-      taskId: id,
-      agentId: task.agentId,
-      level: LogLevel.INFO,
-      message: `Task status changed: ${oldStatus} → ${body.status}`,
-      timestamp: now,
-    });
+    const updateData: Record<string, unknown> = {};
+    if (body.title !== undefined) updateData.title = body.title;
+    if (body.description !== undefined) updateData.description = body.description;
+    if (body.status !== undefined) updateData.status = body.status as TaskStatus;
+    if (body.priority !== undefined) updateData.priority = body.priority;
+    if (body.assigneeAgentId !== undefined) updateData.assigneeAgentId = body.assigneeAgentId;
+    if (body.agentId !== undefined) updateData.assigneeAgentId = body.agentId;
+    if (body.projectId !== undefined) updateData.projectId = body.projectId;
+    if (body.labels !== undefined) updateData.labels = body.labels;
+    if (body.tags !== undefined) updateData.labels = body.tags;
+    if (body.dueDate !== undefined) updateData.dueDate = body.dueDate ? new Date(body.dueDate) : null;
+    if (body.estimatedCost !== undefined) updateData.estimatedCost = body.estimatedCost;
+    if (body.actualCost !== undefined) updateData.actualCost = body.actualCost;
 
-    if (body.status === TaskStatus.AWAITING_APPROVAL) {
-      const approval = store.insert(store.approvals, {
-        id: generateId("appr"),
-        taskId: id,
-        requestedById: task.agentId || task.assignedToUserId || "system",
-        status: ApprovalStatus.PENDING,
-        createdAt: now,
+    const updated = await prisma.task.update({ where: { id }, data: updateData });
+
+    if (body.status && body.status !== oldStatus) {
+      await prisma.logEvent.create({
+        data: {
+          organizationId: task.organizationId,
+          workspaceId: task.workspaceId,
+          taskId: id,
+          agentId: task.assigneeAgentId,
+          level: LogLevel.INFO,
+          source: "api",
+          message: `Task status changed: ${oldStatus} → ${body.status}`,
+        },
       });
 
-      store.insert(store.notifications, {
-        id: generateId("notif"),
-        userId: task.assignedToUserId || auth.ctx.organizationId,
-        title: "Approval Required",
-        message: `Task "${task.title}" requires approval`,
-        severity: Severity.HIGH,
-        isRead: false,
-        linkUrl: `/tasks/${id}`,
-        createdAt: now,
-      });
+      if (body.status === TaskStatus.AWAITING_APPROVAL) {
+        const approval = await prisma.approval.create({
+          data: {
+            taskId: id,
+            requestedById: task.assigneeAgentId || "system",
+            title: `Approval for: ${task.title}`,
+            status: ApprovalStatus.PENDING,
+            severity: Severity.MEDIUM,
+          },
+        });
 
-      store.insert(store.logEvents, {
-        id: generateId("log"),
-        organizationId: auth.ctx.organizationId,
-        workspaceId: task.workspaceId,
-        taskId: id,
-        level: LogLevel.INFO,
-        message: `Approval ${approval.id} auto-created for task`,
-        timestamp: now,
-      });
+        await prisma.notification.create({
+          data: {
+            type: "approval_required",
+            userId: task.createdByUserId ?? undefined,
+            organizationId: task.organizationId,
+            workspaceId: task.workspaceId,
+            title: "Approval Required",
+            message: `Task "${task.title}" requires approval`,
+            severity: Severity.HIGH,
+            link: `/tasks/${id}`,
+          },
+        });
+
+        await prisma.logEvent.create({
+          data: {
+            organizationId: task.organizationId,
+            workspaceId: task.workspaceId,
+            taskId: id,
+            level: LogLevel.INFO,
+            source: "api",
+            message: `Approval ${approval.id} auto-created for task`,
+          },
+        });
+      }
     }
-  }
 
-  return jsonResponse({ data: updated });
+    return jsonResponse({ data: updated });
+  } catch (err) {
+    return errorResponse(`Failed to update task: ${err instanceof Error ? err.message : err}`, 500);
+  }
 }
 
 export async function DELETE(
@@ -109,19 +135,15 @@ export async function DELETE(
   if (!auth.ok) return auth.response;
 
   const { id } = await params;
-  const task = store.findById(store.tasks, id);
-  if (!task) return errorResponse("Task not found", 404);
 
-  const runs = store.filter(store.taskRuns, (r) => r.taskId === id);
-  for (const run of runs) store.remove(store.taskRuns, run.id);
+  try {
+    const task = await prisma.task.findUnique({ where: { id } });
+    if (!task) return errorResponse("Task not found", 404);
 
-  const deps = store.filter(store.taskDependencies, (d) => d.taskId === id || d.dependsOnTaskId === id);
-  for (const dep of deps) store.remove(store.taskDependencies, dep.id);
+    await prisma.task.delete({ where: { id } });
 
-  const comments = store.filter(store.comments, (c) => c.taskId === id);
-  for (const comment of comments) store.remove(store.comments, comment.id);
-
-  store.remove(store.tasks, id);
-
-  return jsonResponse({ success: true });
+    return jsonResponse({ success: true });
+  } catch (err) {
+    return errorResponse(`Failed to delete task: ${err instanceof Error ? err.message : err}`, 500);
+  }
 }

@@ -1,26 +1,15 @@
-"use client";
-
-import { useParams } from "next/navigation";
+export const dynamic = "force-dynamic";
 import Link from "next/link";
+import { notFound } from "next/navigation";
 import {
   ChevronRight,
   CalendarDays,
   CheckCircle2,
   AlertTriangle,
-  Clock,
   Cpu,
   FileText,
 } from "lucide-react";
-import {
-  projects,
-  tasks,
-  agents,
-  users,
-  workspaces,
-  artifacts,
-  taskRuns,
-} from "@/lib/mock-data";
-import { TaskStatus, type Task } from "@/lib/types";
+import { prisma } from "@/lib/db";
 import {
   getStatusColor,
   getPriorityColor,
@@ -51,49 +40,57 @@ const PROJECT_STATUS_COLOR: Record<string, string> = {
   ARCHIVED: "bg-zinc-500/15 text-zinc-400 border-zinc-500/20",
 };
 
-const agentMap = new Map(agents.map((a) => [a.id, a]));
-const userMap = new Map(users.map((u) => [u.id, u]));
-const workspaceMap = new Map(workspaces.map((w) => [w.id, w]));
+export default async function ProjectDetailPage({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}) {
+  const { id } = await params;
 
-export default function ProjectDetailPage() {
-  const { id } = useParams<{ id: string }>();
-  const project = projects.find((p) => p.id === id);
+  const project = await prisma.project.findUnique({
+    where: { id },
+    include: {
+      workspace: { select: { id: true, name: true } },
+      tasks: {
+        include: {
+          assigneeAgent: { select: { id: true, name: true, slug: true, status: true, model: true } },
+          taskRuns: { select: { id: true, cost: true } },
+        },
+        orderBy: { updatedAt: "desc" },
+      },
+      artifacts: {
+        include: {
+          agent: { select: { id: true, name: true } },
+        },
+        orderBy: { createdAt: "desc" },
+      },
+    },
+  });
 
   if (!project) {
-    return (
-      <div className="flex h-[60vh] items-center justify-center">
-        <div className="text-center">
-          <h2 className="text-lg font-medium">Project not found</h2>
-          <p className="mt-1 text-sm text-muted-foreground">The project &quot;{id}&quot; does not exist.</p>
-          <Link href="/projects" className="mt-4 inline-block text-sm text-blue-400 hover:underline">
-            Back to Projects
-          </Link>
-        </div>
-      </div>
-    );
+    return notFound();
   }
 
-  const workspace = workspaceMap.get(project.workspaceId);
-  const owner = userMap.get(project.ownerId);
-  const projectTasks = tasks.filter((t) => t.projectId === project.id);
-  const completedCount = projectTasks.filter((t) => t.status === TaskStatus.COMPLETED).length;
-  const runningCount = projectTasks.filter((t) => t.status === TaskStatus.RUNNING).length;
-  const blockedCount = projectTasks.filter((t) => t.status === TaskStatus.BLOCKED).length;
+  const workspace = project.workspace;
+  const projectTasks = project.tasks;
+  const completedCount = projectTasks.filter((t) => t.status === "COMPLETED").length;
+  const runningCount = projectTasks.filter((t) => t.status === "RUNNING").length;
+  const blockedCount = projectTasks.filter((t) => t.status === "BLOCKED").length;
   const progress = projectTasks.length > 0 ? Math.round((completedCount / projectTasks.length) * 100) : 0;
 
-  const projectAgentIds = new Set(projectTasks.map((t) => t.agentId).filter(Boolean));
-  const projectAgents = agents.filter((a) => projectAgentIds.has(a.id));
-
-  const projectArtifacts = artifacts.filter((a) =>
-    projectTasks.some((t) => t.id === a.taskId)
+  const projectAgentIds = new Set(
+    projectTasks.map((t) => t.assigneeAgentId).filter((id): id is string => !!id)
   );
+  const projectAgents = projectTasks
+    .filter((t) => t.assigneeAgent)
+    .map((t) => t.assigneeAgent!)
+    .filter((agent, i, arr) => arr.findIndex((a) => a.id === agent.id) === i);
 
-  const projectRuns = taskRuns.filter((r) =>
-    projectTasks.some((t) => t.id === r.taskId)
-  );
-  const totalCost = projectRuns.reduce((sum, r) => sum + (r.costUsd ?? 0), 0);
+  const projectArtifacts = project.artifacts;
 
-  const isOverdue = project.endDate && project.endDate < new Date() && project.status !== "COMPLETED";
+  const totalCost = projectTasks
+    .flatMap((t) => t.taskRuns)
+    .reduce((sum, r) => sum + (r.cost ?? 0), 0);
 
   return (
     <div className="min-h-screen bg-background">
@@ -115,7 +112,6 @@ export default function ProjectDetailPage() {
           </div>
           <div className="flex items-center gap-4 text-sm text-muted-foreground">
             {workspace && <span>{workspace.name}</span>}
-            {owner && <span>Owner: {owner.name}</span>}
           </div>
         </div>
 
@@ -215,58 +211,6 @@ export default function ProjectDetailPage() {
                       <p className="mt-1 text-sm">{workspace?.name ?? "—"}</p>
                     </div>
                     <Separator />
-                    <div>
-                      <p className="text-xs font-medium text-muted-foreground">Owner</p>
-                      {owner ? (
-                        <div className="mt-1 flex items-center gap-2">
-                          <Avatar size="sm">
-                            <AvatarFallback className="bg-zinc-600 text-white text-[10px] font-bold">
-                              {owner.name[0].toUpperCase()}
-                            </AvatarFallback>
-                          </Avatar>
-                          <span className="text-sm">{owner.name}</span>
-                        </div>
-                      ) : (
-                        <p className="mt-1 text-sm text-muted-foreground">—</p>
-                      )}
-                    </div>
-                    <Separator />
-                    {project.startDate && (
-                      <div>
-                        <p className="text-xs font-medium text-muted-foreground">Start Date</p>
-                        <p className="mt-1 flex items-center gap-1.5 text-sm">
-                          <CalendarDays className="size-3.5" />
-                          {project.startDate.toLocaleDateString("en-US", {
-                            month: "short",
-                            day: "numeric",
-                            year: "numeric",
-                          })}
-                        </p>
-                      </div>
-                    )}
-                    {project.endDate && (
-                      <>
-                        <Separator />
-                        <div>
-                          <p className="text-xs font-medium text-muted-foreground">End Date</p>
-                          <p
-                            className={cn(
-                              "mt-1 flex items-center gap-1.5 text-sm",
-                              isOverdue ? "text-red-400" : ""
-                            )}
-                          >
-                            <CalendarDays className="size-3.5" />
-                            {project.endDate.toLocaleDateString("en-US", {
-                              month: "short",
-                              day: "numeric",
-                              year: "numeric",
-                            })}
-                            {isOverdue && <span className="text-xs">(overdue)</span>}
-                          </p>
-                        </div>
-                      </>
-                    )}
-                    <Separator />
                     <div className="space-y-2">
                       <div className="flex justify-between text-sm">
                         <span className="text-muted-foreground">Created</span>
@@ -316,13 +260,9 @@ export default function ProjectDetailPage() {
                       </TableRow>
                     ) : (
                       projectTasks.map((task) => {
-                        const agent = task.agentId ? agentMap.get(task.agentId) : null;
-                        const taskUser = task.assignedToUserId ? userMap.get(task.assignedToUserId) : null;
-                        const assignee = agent
-                          ? { name: agent.name, initial: agent.name[0] }
-                          : taskUser
-                            ? { name: taskUser.name, initial: taskUser.name[0] }
-                            : null;
+                        const assignee = task.assigneeAgent
+                          ? { name: task.assigneeAgent.name, initial: task.assigneeAgent.name[0] }
+                          : null;
                         const taskOverdue = task.dueDate && task.dueDate < new Date();
 
                         return (
@@ -403,8 +343,8 @@ export default function ProjectDetailPage() {
                 </div>
               ) : (
                 projectAgents.map((agent) => {
-                  const agentTasks = projectTasks.filter((t) => t.agentId === agent.id);
-                  const agentCompleted = agentTasks.filter((t) => t.status === TaskStatus.COMPLETED).length;
+                  const agentTasks = projectTasks.filter((t) => t.assigneeAgentId === agent.id);
+                  const agentCompleted = agentTasks.filter((t) => t.status === "COMPLETED").length;
                   return (
                     <Link key={agent.id} href={`/agents/${agent.id}`} className="block">
                       <Card className="group transition-all hover:border-border hover:bg-muted/20">
@@ -451,7 +391,7 @@ export default function ProjectDetailPage() {
                 </div>
               ) : (
                 projectArtifacts.map((artifact) => {
-                  const artifactAgent = artifact.agentId ? agentMap.get(artifact.agentId) : null;
+                  const artifactAgent = artifact.agent;
                   return (
                     <Card key={artifact.id} className="transition-all hover:border-border hover:bg-muted/20">
                       <CardContent className="p-4">

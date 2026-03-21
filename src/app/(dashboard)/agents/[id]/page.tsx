@@ -1,3 +1,4 @@
+export const dynamic = "force-dynamic";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import {
@@ -5,16 +6,13 @@ import {
   Cpu,
   HardDrive,
   Shield,
-  Database,
   DollarSign,
-  Eye,
   Building2,
   Network,
   Zap,
   Clock,
   Terminal,
   Activity,
-  ChevronDown,
 } from "lucide-react";
 import {
   Card,
@@ -33,19 +31,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Separator } from "@/components/ui/separator";
-import {
-  agents,
-  workspaces,
-  departments,
-  tasks,
-  taskRuns,
-  logEvents,
-  costRecords,
-  agentPermissions,
-  agentHeartbeats,
-  memoryEntries,
-} from "@/lib/mock-data";
-import { TaskStatus } from "@/lib/types";
+import { prisma } from "@/lib/db";
 import {
   formatRelativeTime,
   formatCurrency,
@@ -64,47 +50,62 @@ export default async function AgentDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const agent = agents.find((a) => a.id === id);
+
+  const agent = await prisma.agent.findUnique({
+    where: { id },
+    include: {
+      workspace: { select: { id: true, name: true } },
+      department: { select: { name: true } },
+    },
+  });
 
   if (!agent) {
     notFound();
   }
 
-  const workspace = workspaces.find((w) => w.id === agent.workspaceId);
-  const department = departments.find((d) => d.id === agent.departmentId);
-  const heartbeat = agentHeartbeats.find((h) => h.agentId === agent.id);
-  const permissions = agentPermissions.filter((p) => p.agentId === agent.id);
+  const [
+    agentTasks,
+    agentRuns,
+    agentLogs,
+    agentCostsAgg,
+    agentRunCount,
+    heartbeat,
+    permissions,
+  ] = await Promise.all([
+    prisma.task.findMany({
+      where: { assigneeAgentId: id },
+      orderBy: { updatedAt: "desc" },
+      take: 10,
+    }),
+    prisma.taskRun.count({ where: { agentId: id } }),
+    prisma.logEvent.findMany({
+      where: { agentId: id },
+      orderBy: { createdAt: "desc" },
+      take: 8,
+    }),
+    prisma.costRecord.aggregate({
+      where: { agentId: id },
+      _sum: { cost: true, tokensInput: true, tokensOutput: true },
+    }),
+    prisma.taskRun.count({ where: { agentId: id } }),
+    prisma.agentHeartbeat.findFirst({
+      where: { agentId: id },
+      orderBy: { createdAt: "desc" },
+    }),
+    prisma.agentPermission.findMany({
+      where: { agentId: id },
+    }),
+  ]);
 
-  const agentTasks = tasks
-    .filter((t) => t.agentId === agent.id)
-    .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
-  const currentTask = agentTasks.find(
-    (t) => t.status === TaskStatus.RUNNING
-  );
-  const agentRuns = taskRuns
-    .filter((r) => r.agentId === agent.id)
-    .sort((a, b) => b.startedAt.getTime() - a.startedAt.getTime());
-  const agentLogs = logEvents
-    .filter((l) => l.agentId === agent.id)
-    .sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime())
-    .slice(0, 8);
-  const agentCosts = costRecords.filter((c) => c.agentId === agent.id);
+  const totalTaskCount = await prisma.task.count({
+    where: { assigneeAgentId: id },
+  });
 
-  const totalCost = agentCosts.reduce((sum, c) => sum + c.costUsd, 0);
-  const totalInputTokens = agentCosts.reduce(
-    (sum, c) => sum + c.inputTokens,
-    0
-  );
-  const totalOutputTokens = agentCosts.reduce(
-    (sum, c) => sum + c.outputTokens,
-    0
-  );
+  const currentTask = agentTasks.find((t) => t.status === "RUNNING");
 
-  const agentMemories = memoryEntries.filter(
-    (m) =>
-      m.workspaceId === agent.workspaceId ||
-      m.visibility === "GLOBAL"
-  );
+  const totalCost = agentCostsAgg._sum.cost ?? 0;
+  const totalInputTokens = agentCostsAgg._sum.tokensInput ?? 0;
+  const totalOutputTokens = agentCostsAgg._sum.tokensOutput ?? 0;
 
   const logLevelColor: Record<string, string> = {
     DEBUG: "text-zinc-500",
@@ -128,16 +129,21 @@ export default async function AgentDetailPage({
         <span className="text-foreground">{agent.name}</span>
       </div>
 
-      {/* Two-column layout */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         {/* ── Left Column ──────────────────────────────────────────── */}
         <div className="space-y-6 lg:col-span-2">
-          {/* Agent Header */}
-          <AgentHeader agent={agent} />
+          <AgentHeader
+            agent={{
+              name: agent.name,
+              slug: agent.slug,
+              description: agent.description,
+              status: agent.status,
+              role: agent.role,
+            }}
+          />
 
           <Separator />
 
-          {/* System Prompt */}
           {agent.systemPrompt && (
             <Card>
               <CardHeader>
@@ -163,7 +169,6 @@ export default async function AgentDetailPage({
             </Card>
           )}
 
-          {/* Current Task */}
           {currentTask && (
             <Card className="ring-blue-500/20">
               <CardHeader>
@@ -199,12 +204,11 @@ export default async function AgentDetailPage({
             </Card>
           )}
 
-          {/* Task History */}
           <Card>
             <CardHeader>
               <CardTitle>Task History</CardTitle>
               <CardDescription>
-                {agentTasks.length} total tasks assigned
+                {totalTaskCount} total tasks assigned
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -218,7 +222,7 @@ export default async function AgentDetailPage({
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {agentTasks.slice(0, 10).map((task) => (
+                  {agentTasks.map((task) => (
                     <TableRow key={task.id}>
                       <TableCell className="max-w-[300px] truncate font-medium">
                         {task.title}
@@ -253,7 +257,6 @@ export default async function AgentDetailPage({
             </CardContent>
           </Card>
 
-          {/* Recent Logs */}
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-sm">
@@ -281,7 +284,7 @@ export default async function AgentDetailPage({
                     <div className="min-w-0 flex-1">
                       <p className="text-sm leading-snug">{log.message}</p>
                       <p className="mt-0.5 text-xs text-muted-foreground">
-                        {formatRelativeTime(log.timestamp)}
+                        {formatRelativeTime(log.createdAt)}
                       </p>
                     </div>
                   </div>
@@ -293,7 +296,6 @@ export default async function AgentDetailPage({
 
         {/* ── Right Column ─────────────────────────────────────────── */}
         <div className="space-y-4">
-          {/* Status & Health */}
           <Card>
             <CardHeader>
               <CardTitle className="text-sm">Status & Health</CardTitle>
@@ -320,37 +322,40 @@ export default async function AgentDetailPage({
               </div>
               {heartbeat && (
                 <>
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="flex items-center gap-1.5 text-muted-foreground">
-                      <Cpu className="h-3.5 w-3.5" />
-                      CPU
-                    </span>
-                    <span className="tabular-nums">{heartbeat.cpuPercent}%</span>
-                  </div>
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="flex items-center gap-1.5 text-muted-foreground">
-                      <HardDrive className="h-3.5 w-3.5" />
-                      Memory
-                    </span>
-                    <span className="tabular-nums">{heartbeat.memoryMb} MB</span>
-                  </div>
+                  {heartbeat.cpuUsage != null && (
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="flex items-center gap-1.5 text-muted-foreground">
+                        <Cpu className="h-3.5 w-3.5" />
+                        CPU
+                      </span>
+                      <span className="tabular-nums">{heartbeat.cpuUsage}%</span>
+                    </div>
+                  )}
+                  {heartbeat.memoryUsage != null && (
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="flex items-center gap-1.5 text-muted-foreground">
+                        <HardDrive className="h-3.5 w-3.5" />
+                        Memory
+                      </span>
+                      <span className="tabular-nums">{heartbeat.memoryUsage} MB</span>
+                    </div>
+                  )}
                 </>
               )}
               <div className="flex items-center justify-between text-sm">
                 <span className="flex items-center gap-1.5 text-muted-foreground">
                   <Clock className="h-3.5 w-3.5" />
-                  Last Active
+                  Last Heartbeat
                 </span>
                 <span>
-                  {agent.lastActiveAt
-                    ? formatRelativeTime(agent.lastActiveAt)
+                  {heartbeat
+                    ? formatRelativeTime(heartbeat.createdAt)
                     : "—"}
                 </span>
               </div>
             </CardContent>
           </Card>
 
-          {/* Configuration */}
           <Card>
             <CardHeader>
               <CardTitle className="text-sm">Configuration</CardTitle>
@@ -368,18 +373,17 @@ export default async function AgentDetailPage({
               </div>
               <div className="flex items-center justify-between text-sm">
                 <span className="text-muted-foreground">Temperature</span>
-                <span className="tabular-nums">0.7</span>
+                <span className="tabular-nums">{agent.temperature}</span>
               </div>
               <div className="flex items-center justify-between text-sm">
-                <span className="text-muted-foreground">Visibility</span>
+                <span className="text-muted-foreground">Role</span>
                 <Badge variant="outline" className="text-xs">
-                  {agent.visibility}
+                  {agent.role}
                 </Badge>
               </div>
             </CardContent>
           </Card>
 
-          {/* Assignments */}
           <Card>
             <CardHeader>
               <CardTitle className="text-sm">Assignments</CardTitle>
@@ -391,12 +395,12 @@ export default async function AgentDetailPage({
                   Workspace
                 </span>
                 <span className="font-medium">
-                  {workspace ? (
+                  {agent.workspace ? (
                     <Link
-                      href={`/workspaces/${workspace.id}`}
+                      href={`/workspaces/${agent.workspace.id}`}
                       className="text-primary transition-colors hover:underline"
                     >
-                      {workspace.name}
+                      {agent.workspace.name}
                     </Link>
                   ) : (
                     <span className="text-muted-foreground">Global</span>
@@ -408,36 +412,11 @@ export default async function AgentDetailPage({
                   <Network className="h-3.5 w-3.5" />
                   Department
                 </span>
-                <span>{department?.name ?? "—"}</span>
+                <span>{agent.department?.name ?? "—"}</span>
               </div>
             </CardContent>
           </Card>
 
-          {/* Memory & Capabilities */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-sm">
-                <Database className="h-3.5 w-3.5" />
-                Memory & Capabilities
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="text-sm">
-                <span className="text-muted-foreground">
-                  Memory scope: {agentMemories.length} entries accessible
-                </span>
-              </div>
-              <div className="flex flex-wrap gap-1">
-                {agent.capabilities.map((cap) => (
-                  <Badge key={cap} variant="secondary" className="text-xs">
-                    {cap}
-                  </Badge>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Cost Usage */}
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-sm">
@@ -466,12 +445,11 @@ export default async function AgentDetailPage({
               </div>
               <div className="flex items-center justify-between text-sm">
                 <span className="text-muted-foreground">Task Runs</span>
-                <span className="tabular-nums">{agentRuns.length}</span>
+                <span className="tabular-nums">{agentRunCount}</span>
               </div>
             </CardContent>
           </Card>
 
-          {/* Permissions */}
           {permissions.length > 0 && (
             <Card>
               <CardHeader>
@@ -482,52 +460,27 @@ export default async function AgentDetailPage({
               </CardHeader>
               <CardContent>
                 <div className="space-y-3">
-                  {permissions.map((perm) => {
-                    const permWs = workspaces.find(
-                      (w) => w.id === perm.workspaceId
-                    );
-                    return (
-                      <div key={perm.id} className="space-y-1">
-                        <p className="text-sm font-medium">
-                          {permWs?.name ?? perm.workspaceId}
-                        </p>
-                        <div className="flex gap-1.5">
-                          {perm.canRead && (
-                            <Badge
-                              variant="outline"
-                              className="text-[10px]"
-                            >
-                              Read
-                            </Badge>
-                          )}
-                          {perm.canWrite && (
-                            <Badge
-                              variant="outline"
-                              className="text-[10px]"
-                            >
-                              Write
-                            </Badge>
-                          )}
-                          {perm.canExecute && (
-                            <Badge
-                              variant="outline"
-                              className="text-[10px]"
-                            >
-                              Execute
-                            </Badge>
-                          )}
-                          {perm.canApprove && (
-                            <Badge
-                              variant="outline"
-                              className="text-[10px]"
-                            >
-                              Approve
-                            </Badge>
-                          )}
-                        </div>
+                  {permissions.map((perm) => (
+                    <div key={perm.id} className="space-y-1">
+                      <p className="text-sm font-medium">
+                        {perm.resource}
+                      </p>
+                      <div className="flex gap-1.5">
+                        <Badge
+                          variant="outline"
+                          className="text-[10px]"
+                        >
+                          {perm.action}
+                        </Badge>
+                        <Badge
+                          variant="outline"
+                          className="text-[10px]"
+                        >
+                          {perm.scope}
+                        </Badge>
                       </div>
-                    );
-                  })}
+                    </div>
+                  ))}
                 </div>
               </CardContent>
             </Card>

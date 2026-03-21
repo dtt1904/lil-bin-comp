@@ -11,10 +11,19 @@ import {
   YAxis,
 } from "recharts";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { costRecords } from "@/lib/mock-data";
 import { formatCurrency } from "@/lib/helpers";
 
-export function CostChart() {
+interface CostRecordRow {
+  id: string;
+  cost: number;
+  createdAt: string;
+}
+
+interface CostChartProps {
+  costRecords: CostRecordRow[];
+}
+
+export function CostChart({ costRecords }: CostChartProps) {
   const chartData = useMemo(() => {
     const DAYS = 7;
     const data: { date: string; cost: number }[] = [];
@@ -26,8 +35,11 @@ export function CostChart() {
       const dayEnd = new Date(dayStart.getTime() + 86_400_000);
 
       const total = costRecords
-        .filter((c) => c.recordedAt >= dayStart && c.recordedAt < dayEnd)
-        .reduce((sum, c) => sum + c.costUsd, 0);
+        .filter((c) => {
+          const t = new Date(c.createdAt).getTime();
+          return t >= dayStart.getTime() && t < dayEnd.getTime();
+        })
+        .reduce((sum, c) => sum + c.cost, 0);
 
       data.push({
         date: d.toLocaleDateString("en-US", {
@@ -39,7 +51,7 @@ export function CostChart() {
     }
 
     return data;
-  }, []);
+  }, [costRecords]);
 
   const totalWeek = chartData.reduce((s, d) => s + d.cost, 0);
 

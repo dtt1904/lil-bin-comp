@@ -4,7 +4,7 @@ import {
   jsonResponse,
   errorResponse,
 } from "@/lib/api-auth";
-import { store } from "@/lib/store";
+import { prisma } from "@/lib/db";
 
 export async function GET(
   req: NextRequest,
@@ -14,29 +14,29 @@ export async function GET(
   if (!auth.ok) return auth.response;
 
   const { id } = await params;
-  const department = store.findById(store.departments, id);
-  if (!department) {
-    return errorResponse("Department not found", 404);
-  }
 
-  const agentCount = store.filter(
-    store.agents,
-    (a) => a.departmentId === id
-  ).length;
-  const taskCount = store.filter(
-    store.tasks,
-    (t) => t.workspaceId === department.workspaceId
-  ).length;
-
-  return jsonResponse({
-    data: {
-      ...department,
-      _counts: {
-        agents: agentCount,
-        tasks: taskCount,
+  try {
+    const department = await prisma.department.findUnique({
+      where: { id },
+      include: {
+        _count: { select: { agents: true, tasks: true } },
       },
-    },
-  });
+    });
+
+    if (!department) {
+      return errorResponse("Department not found", 404);
+    }
+
+    const { _count, ...rest } = department;
+    return jsonResponse({
+      data: {
+        ...rest,
+        _counts: _count,
+      },
+    });
+  } catch {
+    return errorResponse("Internal error", 500);
+  }
 }
 
 export async function PATCH(
@@ -47,10 +47,6 @@ export async function PATCH(
   if (!auth.ok) return auth.response;
 
   const { id } = await params;
-  const existing = store.findById(store.departments, id);
-  if (!existing) {
-    return errorResponse("Department not found", 404);
-  }
 
   let body: Record<string, unknown>;
   try {
@@ -66,24 +62,38 @@ export async function PATCH(
   };
 
   if (workspaceId) {
-    const workspace = store.findById(store.workspaces, workspaceId);
-    if (!workspace) {
-      return errorResponse(
-        `Workspace "${workspaceId}" not found`,
-        400,
-        { field: "workspaceId" }
-      );
+    try {
+      const workspace = await prisma.workspace.findUnique({
+        where: { id: workspaceId },
+      });
+      if (!workspace) {
+        return errorResponse(`Workspace "${workspaceId}" not found`, 400, {
+          field: "workspaceId",
+        });
+      }
+    } catch {
+      return errorResponse("Internal error", 500);
     }
   }
 
-  const updates: Record<string, unknown> = { updatedAt: new Date() };
-  if (name !== undefined) updates.name = name;
-  if (description !== undefined) updates.description = description;
-  if (workspaceId !== undefined) updates.workspaceId = workspaceId;
+  const data: Record<string, unknown> = {};
+  if (name !== undefined) data.name = name;
+  if (description !== undefined) data.description = description;
+  if (workspaceId !== undefined) data.workspaceId = workspaceId;
 
-  const updated = store.update(store.departments, id, updates);
+  try {
+    const updated = await prisma.department.update({
+      where: { id },
+      data,
+    });
 
-  return jsonResponse({ data: updated });
+    return jsonResponse({ data: updated });
+  } catch (e: any) {
+    if (e.code === "P2025") return errorResponse("Department not found", 404);
+    if (e.code === "P2002")
+      return errorResponse("Unique constraint violation", 409);
+    return errorResponse("Internal error", 500);
+  }
 }
 
 export async function DELETE(
@@ -94,20 +104,12 @@ export async function DELETE(
   if (!auth.ok) return auth.response;
 
   const { id } = await params;
-  const existing = store.findById(store.departments, id);
-  if (!existing) {
-    return errorResponse("Department not found", 404);
+
+  try {
+    await prisma.department.delete({ where: { id } });
+    return jsonResponse({ success: true });
+  } catch (e: any) {
+    if (e.code === "P2025") return errorResponse("Department not found", 404);
+    return errorResponse("Internal error", 500);
   }
-
-  const agentsInDept = store.filter(
-    store.agents,
-    (a) => a.departmentId === id
-  );
-  for (const agent of agentsInDept) {
-    store.update(store.agents, agent.id, { departmentId: undefined });
-  }
-
-  store.remove(store.departments, id);
-
-  return jsonResponse({ success: true });
 }

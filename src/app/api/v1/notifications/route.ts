@@ -1,12 +1,12 @@
 import { NextRequest } from "next/server";
-import { store, generateId } from "@/lib/store";
+import { prisma } from "@/lib/db";
 import {
   authenticateRequest,
   jsonResponse,
   errorResponse,
   parseSearchParams,
 } from "@/lib/api-auth";
-import { Severity } from "@/lib/types";
+import { Severity } from "@/generated/prisma/enums";
 
 export async function GET(req: NextRequest) {
   const auth = authenticateRequest(req);
@@ -16,23 +16,29 @@ export async function GET(req: NextRequest) {
   const limit = Math.min(parseInt(params.limit || "50", 10) || 50, 200);
   const offset = parseInt(params.offset || "0", 10) || 0;
 
-  let results = store.notifications;
+  try {
+    const where: Record<string, unknown> = {
+      organizationId: auth.ctx.organizationId,
+    };
 
-  if (params.userId) {
-    results = store.filter(results, (n) => n.userId === params.userId);
-  }
-  if (params.isRead !== undefined) {
-    const isRead = params.isRead === "true";
-    results = store.filter(results, (n) => n.isRead === isRead);
-  }
-  if (params.severity) {
-    results = store.filter(results, (n) => n.severity === params.severity);
-  }
+    if (params.userId) where.userId = params.userId;
+    if (params.isRead !== undefined) where.read = params.isRead === "true";
+    if (params.severity) where.severity = params.severity as Severity;
 
-  const total = results.length;
-  const data = results.slice(offset, offset + limit);
+    const [data, total] = await Promise.all([
+      prisma.notification.findMany({
+        where,
+        skip: offset,
+        take: limit,
+        orderBy: { createdAt: "desc" },
+      }),
+      prisma.notification.count({ where }),
+    ]);
 
-  return jsonResponse({ data, meta: { total, limit, offset } });
+    return jsonResponse({ data, meta: { total, limit, offset } });
+  } catch (err) {
+    return errorResponse(`Failed to fetch notifications: ${err instanceof Error ? err.message : err}`, 500);
+  }
 }
 
 export async function POST(req: NextRequest) {
@@ -45,20 +51,25 @@ export async function POST(req: NextRequest) {
     return errorResponse("userId, title, and message are required");
   }
 
-  const user = store.findById(store.users, body.userId);
-  if (!user) return errorResponse("User not found", 404);
+  try {
+    const user = await prisma.user.findUnique({ where: { id: body.userId } });
+    if (!user) return errorResponse("User not found", 404);
 
-  const now = new Date();
-  const notification = store.insert(store.notifications, {
-    id: generateId("notif"),
-    userId: body.userId,
-    title: body.title,
-    message: body.message,
-    severity: body.severity ?? Severity.MEDIUM,
-    isRead: false,
-    linkUrl: body.linkUrl ?? undefined,
-    createdAt: now,
-  });
+    const notification = await prisma.notification.create({
+      data: {
+        type: body.type ?? "general",
+        userId: body.userId,
+        organizationId: auth.ctx.organizationId,
+        workspaceId: body.workspaceId ?? undefined,
+        title: body.title,
+        message: body.message,
+        severity: (body.severity as Severity) ?? Severity.MEDIUM,
+        link: body.linkUrl ?? undefined,
+      },
+    });
 
-  return jsonResponse({ data: notification }, 201);
+    return jsonResponse({ data: notification }, 201);
+  } catch (err) {
+    return errorResponse(`Failed to create notification: ${err instanceof Error ? err.message : err}`, 500);
+  }
 }

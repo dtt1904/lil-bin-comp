@@ -2,12 +2,9 @@ import Link from "next/link";
 import { Building2, Users, Bot, ListChecks, FolderKanban } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import type { Workspace } from "@/lib/types";
-import { WorkspaceType, TaskStatus, ProjectStatus } from "@/lib/types";
-import { departments, agents, tasks, projects } from "@/lib/mock-data";
 import { formatRelativeTime } from "@/lib/helpers";
 
-export function getWorkspaceTypeBadgeClass(type: WorkspaceType): string {
+export function getWorkspaceTypeBadgeClass(type: string): string {
   const map: Record<string, string> = {
     HQ: "bg-violet-500/15 text-violet-400 border-violet-500/20",
     CLIENT: "bg-blue-500/15 text-blue-400 border-blue-500/20",
@@ -17,31 +14,28 @@ export function getWorkspaceTypeBadgeClass(type: WorkspaceType): string {
 }
 
 interface WorkspaceCardProps {
-  workspace: Workspace;
+  workspace: {
+    id: string;
+    name: string;
+    slug: string;
+    description: string | null;
+    type: string;
+    createdAt: string;
+  };
+  counts: {
+    departments: number;
+    agents: number;
+    tasks: number;
+    projects: number;
+  };
 }
 
-export function WorkspaceCard({ workspace }: WorkspaceCardProps) {
-  const deptCount = departments.filter(
-    (d) => d.workspaceId === workspace.id
-  ).length;
-  const agentCount = agents.filter(
-    (a) => a.workspaceId === workspace.id
-  ).length;
-  const activeTaskCount = tasks.filter(
-    (t) =>
-      t.workspaceId === workspace.id &&
-      (t.status === TaskStatus.RUNNING || t.status === TaskStatus.QUEUED)
-  ).length;
-  const activeProjectCount = projects.filter(
-    (p) =>
-      p.workspaceId === workspace.id && p.status === ProjectStatus.ACTIVE
-  ).length;
-
+export function WorkspaceCard({ workspace, counts }: WorkspaceCardProps) {
   const stats = [
-    { label: "Departments", value: deptCount, icon: Users },
-    { label: "Agents", value: agentCount, icon: Bot },
-    { label: "Active Tasks", value: activeTaskCount, icon: ListChecks },
-    { label: "Projects", value: activeProjectCount, icon: FolderKanban },
+    { label: "Departments", value: counts.departments, icon: Users },
+    { label: "Agents", value: counts.agents, icon: Bot },
+    { label: "Tasks", value: counts.tasks, icon: ListChecks },
+    { label: "Projects", value: counts.projects, icon: FolderKanban },
   ];
 
   return (
@@ -87,7 +81,7 @@ export function WorkspaceCard({ workspace }: WorkspaceCardProps) {
           </div>
 
           <div className="flex items-center justify-between border-t border-border/50 pt-3 text-xs text-muted-foreground">
-            <span>Created {formatRelativeTime(workspace.createdAt)}</span>
+            <span>Created {formatRelativeTime(new Date(workspace.createdAt))}</span>
             <span className="text-primary/60 opacity-0 transition-opacity group-hover:opacity-100">
               View workspace →
             </span>

@@ -1,7 +1,7 @@
+export const dynamic = "force-dynamic";
 import Link from "next/link";
 import { Plus, FolderKanban } from "lucide-react";
-import { projects, tasks, workspaces } from "@/lib/mock-data";
-import { TaskStatus, ProjectStatus } from "@/lib/types";
+import { prisma } from "@/lib/db";
 import { formatRelativeTime } from "@/lib/helpers";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -16,19 +16,15 @@ const PROJECT_STATUS_COLOR: Record<string, string> = {
   ARCHIVED: "bg-zinc-500/15 text-zinc-400 border-zinc-500/20",
 };
 
-const workspaceMap = new Map(workspaces.map((w) => [w.id, w]));
+export default async function ProjectsPage() {
+  const projects = await prisma.project.findMany({
+    include: {
+      workspace: { select: { id: true, name: true } },
+      tasks: { select: { id: true, status: true } },
+    },
+    orderBy: { createdAt: "desc" },
+  });
 
-function getProjectTaskCounts(projectId: string) {
-  const projectTasks = tasks.filter((t) => t.projectId === projectId);
-  return {
-    total: projectTasks.length,
-    completed: projectTasks.filter((t) => t.status === TaskStatus.COMPLETED).length,
-    running: projectTasks.filter((t) => t.status === TaskStatus.RUNNING).length,
-    blocked: projectTasks.filter((t) => t.status === TaskStatus.BLOCKED).length,
-  };
-}
-
-export default function ProjectsPage() {
   return (
     <div className="min-h-screen bg-background">
       <div className="mx-auto max-w-[1400px] px-4 py-8 sm:px-6 lg:px-8">
@@ -49,9 +45,11 @@ export default function ProjectsPage() {
         {/* Grid */}
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {projects.map((project) => {
-            const counts = getProjectTaskCounts(project.id);
-            const progress = counts.total > 0 ? Math.round((counts.completed / counts.total) * 100) : 0;
-            const workspace = workspaceMap.get(project.workspaceId);
+            const total = project.tasks.length;
+            const completed = project.tasks.filter((t) => t.status === "COMPLETED").length;
+            const running = project.tasks.filter((t) => t.status === "RUNNING").length;
+            const blocked = project.tasks.filter((t) => t.status === "BLOCKED").length;
+            const progress = total > 0 ? Math.round((completed / total) * 100) : 0;
 
             return (
               <Link key={project.id} href={`/projects/${project.id}`} className="block">
@@ -67,7 +65,7 @@ export default function ProjectsPage() {
                             {project.name}
                           </h3>
                           <p className="text-xs text-muted-foreground">
-                            {workspace?.name ?? "Unknown"}
+                            {project.workspace?.name ?? "Unknown"}
                           </p>
                         </div>
                       </div>
@@ -97,21 +95,21 @@ export default function ProjectsPage() {
                     {/* Task Counts */}
                     <div className="mb-3 flex items-center gap-3 text-xs">
                       <span className="text-muted-foreground">
-                        <span className="font-medium text-foreground">{counts.total}</span> total
+                        <span className="font-medium text-foreground">{total}</span> total
                       </span>
-                      {counts.completed > 0 && (
+                      {completed > 0 && (
                         <span className="text-emerald-400">
-                          <span className="font-medium">{counts.completed}</span> done
+                          <span className="font-medium">{completed}</span> done
                         </span>
                       )}
-                      {counts.running > 0 && (
+                      {running > 0 && (
                         <span className="text-blue-400">
-                          <span className="font-medium">{counts.running}</span> running
+                          <span className="font-medium">{running}</span> running
                         </span>
                       )}
-                      {counts.blocked > 0 && (
+                      {blocked > 0 && (
                         <span className="text-red-400">
-                          <span className="font-medium">{counts.blocked}</span> blocked
+                          <span className="font-medium">{blocked}</span> blocked
                         </span>
                       )}
                     </div>
@@ -121,22 +119,6 @@ export default function ProjectsPage() {
                       <span className="text-[11px] text-muted-foreground">
                         Created {formatRelativeTime(project.createdAt)}
                       </span>
-                      {project.endDate && (
-                        <span
-                          className={cn(
-                            "text-[11px]",
-                            project.endDate < new Date() && project.status !== ProjectStatus.COMPLETED
-                              ? "text-red-400"
-                              : "text-muted-foreground"
-                          )}
-                        >
-                          Due{" "}
-                          {project.endDate.toLocaleDateString("en-US", {
-                            month: "short",
-                            day: "numeric",
-                          })}
-                        </span>
-                      )}
                     </div>
                   </CardContent>
                 </Card>

@@ -1,11 +1,11 @@
 import { NextRequest } from "next/server";
-import { store, generateId } from "@/lib/store";
+import { prisma } from "@/lib/db";
 import {
   authenticateRequest,
   jsonResponse,
   errorResponse,
 } from "@/lib/api-auth";
-import { ShareTaskStatus, LogLevel } from "@/lib/types";
+import { ShareTaskStatus, LogLevel } from "@/generated/prisma/enums";
 
 export async function PATCH(
   req: NextRequest,
@@ -15,8 +15,6 @@ export async function PATCH(
   if (!auth.ok) return auth.response;
 
   const { id } = await params;
-  const existing = store.findById(store.shareTasks, id);
-  if (!existing) return errorResponse("Share task not found", 404);
 
   let body: Record<string, unknown>;
   try {
@@ -25,30 +23,47 @@ export async function PATCH(
     return errorResponse("Invalid JSON body", 400);
   }
 
-  const updates: Record<string, unknown> = {};
-  if (body.status !== undefined) updates.status = body.status;
-  if (body.errorMessage !== undefined) updates.errorMessage = body.errorMessage;
+  try {
+    const existing = await prisma.shareTask.findUnique({ where: { id } });
+    if (!existing) return errorResponse("Share task not found", 404);
 
-  if (body.status === ShareTaskStatus.SHARED) {
-    updates.sharedAt = body.sharedAt ? new Date(body.sharedAt as string) : new Date();
-  } else if (body.sharedAt !== undefined) {
-    updates.sharedAt = new Date(body.sharedAt as string);
-  }
+    const data: Record<string, unknown> = {};
+    if (body.status !== undefined) data.status = body.status;
 
-  const updated = store.update(store.shareTasks, id, updates);
+    if (body.status === ShareTaskStatus.SHARED) {
+      data.sharedAt = body.sharedAt
+        ? new Date(body.sharedAt as string)
+        : new Date();
+    } else if (body.sharedAt !== undefined) {
+      data.sharedAt = new Date(body.sharedAt as string);
+    }
 
-  if (body.status) {
-    const draft = store.findById(store.postDrafts, existing.postDraftId);
-    store.insert(store.logEvents, {
-      id: generateId("log"),
-      organizationId: auth.ctx.organizationId,
-      workspaceId: draft?.workspaceId,
-      level: body.status === ShareTaskStatus.FAILED ? LogLevel.ERROR : LogLevel.INFO,
-      message: `Share task ${body.status}: ${existing.platform}`,
-      metadata: { shareTaskId: id, platform: existing.platform, status: body.status },
-      timestamp: new Date(),
+    const updated = await prisma.shareTask.update({ where: { id }, data });
+
+    if (body.status) {
+      await prisma.logEvent.create({
+        data: {
+          organizationId: existing.organizationId,
+          workspaceId: existing.workspaceId,
+          level:
+            body.status === ShareTaskStatus.FAILED
+              ? LogLevel.ERROR
+              : LogLevel.INFO,
+          source: "api",
+          message: `Share task ${body.status}: ${existing.platform}`,
+          metadata: {
+            shareTaskId: id,
+            platform: existing.platform,
+            status: body.status,
+          },
+        },
+      });
+    }
+
+    return jsonResponse({ data: updated });
+  } catch (err) {
+    return errorResponse("Failed to update share task", 500, {
+      message: (err as Error).message,
     });
   }
-
-  return jsonResponse({ data: updated });
 }

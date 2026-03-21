@@ -5,9 +5,8 @@ import {
   errorResponse,
   parseSearchParams,
 } from "@/lib/api-auth";
-import { store, generateId } from "@/lib/store";
-import { ProjectStatus } from "@/lib/types";
-import type { Project } from "@/lib/types";
+import { prisma } from "@/lib/db";
+import { ProjectStatus } from "@/generated/prisma/enums";
 
 const VALID_STATUSES = Object.values(ProjectStatus);
 
@@ -15,13 +14,15 @@ export async function GET(req: NextRequest) {
   const auth = authenticateRequest(req);
   if (!auth.ok) return auth.response;
 
-  const { workspaceId, status } = parseSearchParams(req);
+  const {
+    workspaceId,
+    status,
+    limit: rawLimit,
+    offset: rawOffset,
+  } = parseSearchParams(req);
 
-  let results = store.projects;
-
-  if (workspaceId) {
-    results = store.filter(results, (p) => p.workspaceId === workspaceId);
-  }
+  const where: Record<string, unknown> = {};
+  if (workspaceId) where.workspaceId = workspaceId;
   if (status) {
     if (!VALID_STATUSES.includes(status as ProjectStatus)) {
       return errorResponse(
@@ -29,13 +30,22 @@ export async function GET(req: NextRequest) {
         400
       );
     }
-    results = store.filter(
-      results,
-      (p) => p.status === (status as ProjectStatus)
-    );
+    where.status = status as ProjectStatus;
   }
 
-  return jsonResponse({ data: results, meta: { total: results.length } });
+  const limit = rawLimit ? parseInt(rawLimit, 10) : 50;
+  const offset = rawOffset ? parseInt(rawOffset, 10) : 0;
+
+  try {
+    const [results, total] = await Promise.all([
+      prisma.project.findMany({ where, take: limit, skip: offset }),
+      prisma.project.count({ where }),
+    ]);
+
+    return jsonResponse({ data: results, meta: { total, limit, offset } });
+  } catch {
+    return errorResponse("Internal error", 500);
+  }
 }
 
 export async function POST(req: NextRequest) {
@@ -49,15 +59,14 @@ export async function POST(req: NextRequest) {
     return errorResponse("Invalid JSON body", 400);
   }
 
-  const { workspaceId, name, description, status, ownerId, startDate, endDate } =
+  const { workspaceId, name, slug, description, status, departmentId } =
     body as {
       workspaceId?: string;
       name?: string;
+      slug?: string;
       description?: string;
       status?: string;
-      ownerId?: string;
-      startDate?: string;
-      endDate?: string;
+      departmentId?: string;
     };
 
   const missing: string[] = [];
@@ -67,14 +76,7 @@ export async function POST(req: NextRequest) {
     return errorResponse("Missing required fields", 400, { missing });
   }
 
-  const workspace = store.findById(store.workspaces, workspaceId!);
-  if (!workspace) {
-    return errorResponse(`Workspace "${workspaceId}" not found`, 400, {
-      field: "workspaceId",
-    });
-  }
-
-  const resolvedStatus = status ?? ProjectStatus.ACTIVE;
+  const resolvedStatus = status ?? "ACTIVE";
   if (!VALID_STATUSES.includes(resolvedStatus as ProjectStatus)) {
     return errorResponse(
       `Invalid status. Must be one of: ${VALID_STATUSES.join(", ")}`,
@@ -82,21 +84,40 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const now = new Date();
-  const project: Project = {
-    id: generateId("proj"),
-    workspaceId: workspaceId!,
-    name: name!,
-    description: description ?? undefined,
-    status: resolvedStatus as ProjectStatus,
-    ownerId: ownerId ?? "user-1",
-    startDate: startDate ? new Date(startDate) : undefined,
-    endDate: endDate ? new Date(endDate) : undefined,
-    createdAt: now,
-    updatedAt: now,
-  };
+  try {
+    const workspace = await prisma.workspace.findUnique({
+      where: { id: workspaceId! },
+    });
+    if (!workspace) {
+      return errorResponse(`Workspace "${workspaceId}" not found`, 400, {
+        field: "workspaceId",
+      });
+    }
 
-  store.insert(store.projects, project);
+    const resolvedSlug =
+      slug ||
+      name!
+        .toLowerCase()
+        .replace(/\s+/g, "-")
+        .replace(/[^a-z0-9-]/g, "");
 
-  return jsonResponse({ data: project }, 201);
+    const project = await prisma.project.create({
+      data: {
+        organizationId: workspace.organizationId,
+        workspaceId: workspaceId!,
+        name: name!,
+        slug: resolvedSlug,
+        description,
+        status: resolvedStatus as ProjectStatus,
+        departmentId,
+      },
+    });
+
+    return jsonResponse({ data: project }, 201);
+  } catch (e: any) {
+    if (e.code === "P2002") {
+      return errorResponse("Project with this slug already exists", 409);
+    }
+    return errorResponse("Internal error", 500);
+  }
 }

@@ -4,11 +4,10 @@ import {
   jsonResponse,
   errorResponse,
 } from "@/lib/api-auth";
-import { store } from "@/lib/store";
-import { AgentStatus, Visibility } from "@/lib/types";
+import { prisma } from "@/lib/db";
+import { AgentStatus } from "@/generated/prisma/enums";
 
 const VALID_STATUSES = Object.values(AgentStatus);
-const VALID_VISIBILITY = Object.values(Visibility);
 
 export async function GET(
   req: NextRequest,
@@ -18,43 +17,47 @@ export async function GET(
   if (!auth.ok) return auth.response;
 
   const { id } = await params;
-  const agent = store.findById(store.agents, id);
-  if (!agent) {
-    return errorResponse("Agent not found", 404);
+
+  try {
+    const agent = await prisma.agent.findUnique({
+      where: { id },
+      include: {
+        assignedTasks: {
+          where: { status: { in: ["RUNNING", "QUEUED"] } },
+          take: 1,
+        },
+        taskRuns: { orderBy: { startedAt: "desc" }, take: 10 },
+        costRecords: true,
+      },
+    });
+
+    if (!agent) {
+      return errorResponse("Agent not found", 404);
+    }
+
+    const { assignedTasks, taskRuns, costRecords, ...agentData } = agent;
+
+    const costSummary = {
+      totalCostUsd: costRecords.reduce((sum, c) => sum + c.cost, 0),
+      totalInputTokens: costRecords.reduce((sum, c) => sum + c.tokensInput, 0),
+      totalOutputTokens: costRecords.reduce(
+        (sum, c) => sum + c.tokensOutput,
+        0
+      ),
+      recordCount: costRecords.length,
+    };
+
+    return jsonResponse({
+      data: {
+        ...agentData,
+        currentTask: assignedTasks[0] ?? null,
+        recentTaskRuns: taskRuns,
+        costSummary,
+      },
+    });
+  } catch {
+    return errorResponse("Internal error", 500);
   }
-
-  const currentTask = store.filter(
-    store.tasks,
-    (t) => t.agentId === id && (t.status === "RUNNING" || t.status === "QUEUED")
-  )[0] ?? null;
-
-  const recentTaskRuns = store
-    .filter(store.taskRuns, (tr) => tr.agentId === id)
-    .sort(
-      (a, b) =>
-        new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime()
-    )
-    .slice(0, 10);
-
-  const costRecords = store.filter(
-    store.costRecords,
-    (c) => c.agentId === id
-  );
-  const costSummary = {
-    totalCostUsd: costRecords.reduce((sum, c) => sum + c.costUsd, 0),
-    totalInputTokens: costRecords.reduce((sum, c) => sum + c.inputTokens, 0),
-    totalOutputTokens: costRecords.reduce((sum, c) => sum + c.outputTokens, 0),
-    recordCount: costRecords.length,
-  };
-
-  return jsonResponse({
-    data: {
-      ...agent,
-      currentTask,
-      recentTaskRuns,
-      costSummary,
-    },
-  });
 }
 
 export async function PATCH(
@@ -65,10 +68,6 @@ export async function PATCH(
   if (!auth.ok) return auth.response;
 
   const { id } = await params;
-  const existing = store.findById(store.agents, id);
-  if (!existing) {
-    return errorResponse("Agent not found", 404);
-  }
 
   let body: Record<string, unknown>;
   try {
@@ -87,9 +86,10 @@ export async function PATCH(
     status,
     workspaceId,
     departmentId,
-    capabilities,
-    tags,
-    visibility,
+    role,
+    temperature,
+    codename,
+    avatarUrl,
   } = body as {
     name?: string;
     slug?: string;
@@ -100,9 +100,10 @@ export async function PATCH(
     status?: string;
     workspaceId?: string;
     departmentId?: string;
-    capabilities?: string[];
-    tags?: string[];
-    visibility?: string;
+    role?: string;
+    temperature?: number;
+    codename?: string;
+    avatarUrl?: string;
   };
 
   if (status && !VALID_STATUSES.includes(status as AgentStatus)) {
@@ -112,56 +113,65 @@ export async function PATCH(
     );
   }
 
-  if (visibility && !VALID_VISIBILITY.includes(visibility as Visibility)) {
-    return errorResponse(
-      `Invalid visibility. Must be one of: ${VALID_VISIBILITY.join(", ")}`,
-      400
-    );
-  }
-
-  if (slug && slug !== existing.slug) {
-    const slugExists =
-      store.filter(store.agents, (a) => a.slug === slug).length > 0;
-    if (slugExists) {
-      return errorResponse(`Agent with slug "${slug}" already exists`, 409);
-    }
-  }
-
   if (workspaceId) {
-    const workspace = store.findById(store.workspaces, workspaceId);
-    if (!workspace) {
-      return errorResponse(`Workspace "${workspaceId}" not found`, 400, {
-        field: "workspaceId",
+    try {
+      const workspace = await prisma.workspace.findUnique({
+        where: { id: workspaceId },
       });
+      if (!workspace) {
+        return errorResponse(`Workspace "${workspaceId}" not found`, 400, {
+          field: "workspaceId",
+        });
+      }
+    } catch {
+      return errorResponse("Internal error", 500);
     }
   }
 
   if (departmentId) {
-    const department = store.findById(store.departments, departmentId);
-    if (!department) {
-      return errorResponse(`Department "${departmentId}" not found`, 400, {
-        field: "departmentId",
+    try {
+      const department = await prisma.department.findUnique({
+        where: { id: departmentId },
       });
+      if (!department) {
+        return errorResponse(`Department "${departmentId}" not found`, 400, {
+          field: "departmentId",
+        });
+      }
+    } catch {
+      return errorResponse("Internal error", 500);
     }
   }
 
-  const updates: Record<string, unknown> = { updatedAt: new Date() };
-  if (name !== undefined) updates.name = name;
-  if (slug !== undefined) updates.slug = slug;
-  if (description !== undefined) updates.description = description;
-  if (model !== undefined) updates.model = model;
-  if (provider !== undefined) updates.provider = provider;
-  if (systemPrompt !== undefined) updates.systemPrompt = systemPrompt;
-  if (status !== undefined) updates.status = status as AgentStatus;
-  if (workspaceId !== undefined) updates.workspaceId = workspaceId;
-  if (departmentId !== undefined) updates.departmentId = departmentId;
-  if (capabilities !== undefined) updates.capabilities = capabilities;
-  if (tags !== undefined) updates.tags = tags;
-  if (visibility !== undefined) updates.visibility = visibility as Visibility;
+  const data: Record<string, unknown> = {};
+  if (name !== undefined) data.name = name;
+  if (slug !== undefined) data.slug = slug;
+  if (description !== undefined) data.description = description;
+  if (model !== undefined) data.model = model;
+  if (provider !== undefined) data.provider = provider;
+  if (systemPrompt !== undefined) data.systemPrompt = systemPrompt;
+  if (status !== undefined) data.status = status as AgentStatus;
+  if (workspaceId !== undefined) data.workspaceId = workspaceId;
+  if (departmentId !== undefined) data.departmentId = departmentId;
+  if (role !== undefined) data.role = role;
+  if (temperature !== undefined) data.temperature = temperature;
+  if (codename !== undefined) data.codename = codename;
+  if (avatarUrl !== undefined) data.avatarUrl = avatarUrl;
 
-  const updated = store.update(store.agents, id, updates);
+  try {
+    const updated = await prisma.agent.update({
+      where: { id },
+      data,
+    });
 
-  return jsonResponse({ data: updated });
+    return jsonResponse({ data: updated });
+  } catch (e: any) {
+    if (e.code === "P2025") return errorResponse("Agent not found", 404);
+    if (e.code === "P2002") {
+      return errorResponse(`Agent with slug "${slug}" already exists`, 409);
+    }
+    return errorResponse("Internal error", 500);
+  }
 }
 
 export async function DELETE(
@@ -172,12 +182,12 @@ export async function DELETE(
   if (!auth.ok) return auth.response;
 
   const { id } = await params;
-  const existing = store.findById(store.agents, id);
-  if (!existing) {
-    return errorResponse("Agent not found", 404);
+
+  try {
+    await prisma.agent.delete({ where: { id } });
+    return jsonResponse({ success: true });
+  } catch (e: any) {
+    if (e.code === "P2025") return errorResponse("Agent not found", 404);
+    return errorResponse("Internal error", 500);
   }
-
-  store.remove(store.agents, id);
-
-  return jsonResponse({ success: true });
 }

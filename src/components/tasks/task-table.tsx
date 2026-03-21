@@ -3,14 +3,12 @@
 import { useState, useMemo } from "react";
 import Link from "next/link";
 import { ArrowUpDown } from "lucide-react";
-import { type Task, TaskPriority } from "@/lib/types";
 import {
   getStatusColor,
   getPriorityColor,
   getAgentAvatarColor,
   formatRelativeTime,
 } from "@/lib/helpers";
-import { agents, workspaces, projects, users } from "@/lib/mock-data";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -23,11 +21,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
-
-const agentMap = new Map(agents.map((a) => [a.id, a]));
-const userMap = new Map(users.map((u) => [u.id, u]));
-const workspaceMap = new Map(workspaces.map((w) => [w.id, w]));
-const projectMap = new Map(projects.map((p) => [p.id, p]));
+import type { SerializedTask } from "./task-card";
 
 const PRIORITY_ORDER: Record<string, number> = {
   CRITICAL: 0,
@@ -39,7 +33,7 @@ const PRIORITY_ORDER: Record<string, number> = {
 type SortField = "priority" | "dueDate" | null;
 type SortDir = "asc" | "desc";
 
-export function TaskTable({ tasks }: { tasks: Task[] }) {
+export function TaskTable({ tasks }: { tasks: SerializedTask[] }) {
   const [sortField, setSortField] = useState<SortField>(null);
   const [sortDir, setSortDir] = useState<SortDir>("asc");
 
@@ -59,8 +53,8 @@ export function TaskTable({ tasks }: { tasks: Task[] }) {
       if (sortField === "priority") {
         cmp = (PRIORITY_ORDER[a.priority] ?? 9) - (PRIORITY_ORDER[b.priority] ?? 9);
       } else if (sortField === "dueDate") {
-        const aTime = a.dueDate?.getTime() ?? Infinity;
-        const bTime = b.dueDate?.getTime() ?? Infinity;
+        const aTime = a.dueDate ? new Date(a.dueDate).getTime() : Infinity;
+        const bTime = b.dueDate ? new Date(b.dueDate).getTime() : Infinity;
         cmp = aTime - bTime;
       }
       return sortDir === "desc" ? -cmp : cmp;
@@ -104,16 +98,11 @@ export function TaskTable({ tasks }: { tasks: Task[] }) {
         </TableHeader>
         <TableBody>
           {sorted.map((task) => {
-            const agent = task.agentId ? agentMap.get(task.agentId) : null;
-            const user = task.assignedToUserId ? userMap.get(task.assignedToUserId) : null;
-            const assignee = agent
-              ? { name: agent.name, initial: agent.name[0] }
-              : user
-                ? { name: user.name, initial: user.name[0] }
-                : null;
-            const workspace = workspaceMap.get(task.workspaceId);
-            const project = task.projectId ? projectMap.get(task.projectId) : null;
-            const isOverdue = task.dueDate && task.dueDate < new Date();
+            const assignee = task.assigneeAgent
+              ? { name: task.assigneeAgent.name, initial: task.assigneeAgent.name[0] }
+              : null;
+            const dueDate = task.dueDate ? new Date(task.dueDate) : null;
+            const isOverdue = dueDate && dueDate < new Date();
 
             return (
               <TableRow key={task.id} className="group">
@@ -155,31 +144,31 @@ export function TaskTable({ tasks }: { tasks: Task[] }) {
                   )}
                 </TableCell>
                 <TableCell className="text-sm text-muted-foreground">
-                  {workspace?.name ?? "—"}
+                  {task.workspace?.name ?? "—"}
                 </TableCell>
                 <TableCell className="max-w-[140px]">
-                  {project ? (
+                  {task.project ? (
                     <Link
-                      href={`/projects/${project.id}`}
+                      href={`/projects/${task.project.id}`}
                       className="line-clamp-1 text-sm text-muted-foreground hover:text-foreground hover:underline"
                     >
-                      {project.name}
+                      {task.project.name}
                     </Link>
                   ) : (
                     <span className="text-sm text-muted-foreground">—</span>
                   )}
                 </TableCell>
                 <TableCell>
-                  {task.dueDate ? (
+                  {dueDate ? (
                     <span className={cn("text-sm", isOverdue ? "font-medium text-red-400" : "text-muted-foreground")}>
-                      {task.dueDate.toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                      {dueDate.toLocaleDateString("en-US", { month: "short", day: "numeric" })}
                     </span>
                   ) : (
                     <span className="text-sm text-muted-foreground">—</span>
                   )}
                 </TableCell>
                 <TableCell className="text-sm text-muted-foreground">
-                  {formatRelativeTime(task.createdAt)}
+                  {formatRelativeTime(new Date(task.createdAt))}
                 </TableCell>
               </TableRow>
             );

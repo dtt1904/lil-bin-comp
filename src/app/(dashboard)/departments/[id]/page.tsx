@@ -1,6 +1,4 @@
-"use client";
-
-import { use } from "react";
+export const dynamic = "force-dynamic";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import {
@@ -8,18 +6,10 @@ import {
   Bot,
   ListChecks,
   FolderKanban,
-  Users,
   Clock,
   ArrowLeft,
 } from "lucide-react";
-import {
-  departments,
-  workspaces,
-  agents,
-  tasks,
-  projects,
-} from "@/lib/mock-data";
-import { TaskStatus } from "@/lib/types";
+import { prisma } from "@/lib/db";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -43,39 +33,46 @@ import {
 } from "@/lib/helpers";
 import { cn } from "@/lib/utils";
 
-const ACTIVE_TASK_STATUSES = [
-  TaskStatus.RUNNING,
-  TaskStatus.QUEUED,
-  TaskStatus.BLOCKED,
-  TaskStatus.AWAITING_APPROVAL,
-];
+const ACTIVE_TASK_STATUSES = ["RUNNING", "QUEUED", "BLOCKED", "AWAITING_APPROVAL"];
 
-export default function DepartmentDetailPage({
+export default async function DepartmentDetailPage({
   params,
 }: {
   params: Promise<{ id: string }>;
 }) {
-  const { id } = use(params);
+  const { id } = await params;
 
-  const dept = departments.find((d) => d.id === id);
+  const dept = await prisma.department.findUnique({
+    where: { id },
+    include: {
+      workspace: { select: { id: true, name: true } },
+      manager: true,
+      agents: {
+        include: {
+          assignedTasks: { select: { id: true, status: true } },
+        },
+      },
+      tasks: {
+        include: {
+          assigneeAgent: { select: { id: true, name: true } },
+        },
+        orderBy: { updatedAt: "desc" },
+      },
+      projects: {
+        include: {
+          tasks: { select: { id: true, status: true } },
+        },
+      },
+    },
+  });
+
   if (!dept) return notFound();
 
-  const workspace = workspaces.find((w) => w.id === dept.workspaceId);
-  const deptAgents = agents.filter((a) => a.departmentId === dept.id);
-  const deptAgentIds = new Set(deptAgents.map((a) => a.id));
-  const deptTasks = tasks.filter(
-    (t) => t.agentId && deptAgentIds.has(t.agentId)
-  );
-  const activeTasks = deptTasks.filter((t) =>
-    ACTIVE_TASK_STATUSES.includes(t.status)
-  );
-  const completedTasks = deptTasks.filter(
-    (t) => t.status === TaskStatus.COMPLETED
-  );
-  const deptProjectIds = new Set(
-    deptTasks.filter((t) => t.projectId).map((t) => t.projectId)
-  );
-  const deptProjects = projects.filter((p) => deptProjectIds.has(p.id));
+  const deptAgents = dept.agents;
+  const deptTasks = dept.tasks;
+  const activeTasks = deptTasks.filter((t) => ACTIVE_TASK_STATUSES.includes(t.status));
+  const completedTasks = deptTasks.filter((t) => t.status === "COMPLETED");
+  const deptProjects = dept.projects;
 
   return (
     <div className="min-h-screen bg-background">
@@ -109,7 +106,7 @@ export default function DepartmentDetailPage({
                   variant="secondary"
                   className="text-[10px] uppercase tracking-wider"
                 >
-                  {workspace?.name}
+                  {dept.workspace?.name}
                 </Badge>
               </div>
               {dept.description && (
@@ -206,7 +203,7 @@ export default function DepartmentDetailPage({
                       <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
                         Workspace
                       </p>
-                      <p className="mt-1 text-sm">{workspace?.name}</p>
+                      <p className="mt-1 text-sm">{dept.workspace?.name}</p>
                     </div>
                     <div>
                       <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
@@ -240,7 +237,42 @@ export default function DepartmentDetailPage({
                     </CardDescription>
                   </CardHeader>
                   <CardContent>
-                    {deptAgents.length > 0 ? (
+                    {dept.manager ? (
+                      <div className="flex items-center gap-4">
+                        <Avatar size="lg">
+                          <AvatarFallback
+                            className={cn(
+                              getAgentAvatarColor(dept.manager.name),
+                              "text-sm font-bold text-white"
+                            )}
+                          >
+                            {dept.manager.name[0].toUpperCase()}
+                          </AvatarFallback>
+                        </Avatar>
+                        <div className="min-w-0 flex-1">
+                          <p className="font-semibold">{dept.manager.name}</p>
+                          <p className="text-xs text-muted-foreground line-clamp-2">
+                            {dept.manager.description}
+                          </p>
+                          <div className="mt-2 flex items-center gap-2">
+                            <span
+                              className={cn(
+                                "inline-block h-2 w-2 rounded-full",
+                                getAgentStatusDotColor(dept.manager.status)
+                              )}
+                            />
+                            <span
+                              className={cn(
+                                "text-xs",
+                                getAgentStatusColor(dept.manager.status)
+                              )}
+                            >
+                              {dept.manager.status}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    ) : deptAgents.length > 0 ? (
                       <div className="flex items-center gap-4">
                         <Avatar size="lg">
                           <AvatarFallback
@@ -290,10 +322,7 @@ export default function DepartmentDetailPage({
           <TabsContent value="agents">
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {deptAgents.map((agent) => {
-                const agentTasks = tasks.filter(
-                  (t) => t.agentId === agent.id
-                );
-                const agentActiveTasks = agentTasks.filter((t) =>
+                const agentActiveTasks = agent.assignedTasks.filter((t) =>
                   ACTIVE_TASK_STATUSES.includes(t.status)
                 );
 
@@ -347,11 +376,6 @@ export default function DepartmentDetailPage({
                           {agentActiveTasks.length} active task
                           {agentActiveTasks.length !== 1 ? "s" : ""}
                         </span>
-                        {agent.lastActiveAt && (
-                          <span>
-                            Active {formatRelativeTime(agent.lastActiveAt)}
-                          </span>
-                        )}
                       </div>
                     </CardContent>
                   </Card>
@@ -380,65 +404,58 @@ export default function DepartmentDetailPage({
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {deptTasks
-                      .sort(
-                        (a, b) =>
-                          b.updatedAt.getTime() - a.updatedAt.getTime()
-                      )
-                      .map((task) => {
-                        const agent = task.agentId
-                          ? agents.find((a) => a.id === task.agentId)
-                          : null;
-                        return (
-                          <TableRow key={task.id}>
-                            <TableCell>
-                              <Badge
-                                variant="outline"
-                                className={getStatusColor(task.status)}
-                              >
-                                {task.status.replace("_", " ")}
-                              </Badge>
-                            </TableCell>
-                            <TableCell className="max-w-[300px] truncate font-medium">
-                              {task.title}
-                            </TableCell>
-                            <TableCell>
-                              {agent ? (
-                                <div className="flex items-center gap-2">
-                                  <Avatar size="sm">
-                                    <AvatarFallback
-                                      className={cn(
-                                        getAgentAvatarColor(agent.name),
-                                        "text-white font-bold"
-                                      )}
-                                    >
-                                      {agent.name[0].toUpperCase()}
-                                    </AvatarFallback>
-                                  </Avatar>
-                                  <span className="text-sm text-muted-foreground">
-                                    {agent.name}
-                                  </span>
-                                </div>
-                              ) : (
+                    {deptTasks.map((task) => {
+                      const agent = task.assigneeAgent;
+                      return (
+                        <TableRow key={task.id}>
+                          <TableCell>
+                            <Badge
+                              variant="outline"
+                              className={getStatusColor(task.status)}
+                            >
+                              {task.status.replace("_", " ")}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="max-w-[300px] truncate font-medium">
+                            {task.title}
+                          </TableCell>
+                          <TableCell>
+                            {agent ? (
+                              <div className="flex items-center gap-2">
+                                <Avatar size="sm">
+                                  <AvatarFallback
+                                    className={cn(
+                                      getAgentAvatarColor(agent.name),
+                                      "text-white font-bold"
+                                    )}
+                                  >
+                                    {agent.name[0].toUpperCase()}
+                                  </AvatarFallback>
+                                </Avatar>
                                 <span className="text-sm text-muted-foreground">
-                                  —
+                                  {agent.name}
                                 </span>
-                              )}
-                            </TableCell>
-                            <TableCell>
-                              <Badge
-                                variant="outline"
-                                className={getPriorityColor(task.priority)}
-                              >
-                                {task.priority}
-                              </Badge>
-                            </TableCell>
-                            <TableCell className="text-muted-foreground">
-                              {formatRelativeTime(task.updatedAt)}
-                            </TableCell>
-                          </TableRow>
-                        );
-                      })}
+                              </div>
+                            ) : (
+                              <span className="text-sm text-muted-foreground">
+                                —
+                              </span>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            <Badge
+                              variant="outline"
+                              className={getPriorityColor(task.priority)}
+                            >
+                              {task.priority}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="text-muted-foreground">
+                            {formatRelativeTime(task.updatedAt)}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
                     {deptTasks.length === 0 && (
                       <TableRow>
                         <TableCell
@@ -459,11 +476,9 @@ export default function DepartmentDetailPage({
           <TabsContent value="projects">
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {deptProjects.map((project) => {
-                const projectTasks = deptTasks.filter(
-                  (t) => t.projectId === project.id
-                );
+                const projectTasks = project.tasks;
                 const completedCount = projectTasks.filter(
-                  (t) => t.status === TaskStatus.COMPLETED
+                  (t) => t.status === "COMPLETED"
                 ).length;
                 const progress =
                   projectTasks.length > 0
@@ -513,15 +528,6 @@ export default function DepartmentDetailPage({
                         <span>
                           {completedCount}/{projectTasks.length} tasks done
                         </span>
-                        {project.endDate && (
-                          <span>
-                            Due{" "}
-                            {project.endDate.toLocaleDateString("en-US", {
-                              month: "short",
-                              day: "numeric",
-                            })}
-                          </span>
-                        )}
                       </div>
                     </CardContent>
                   </Card>

@@ -1,9 +1,6 @@
 import Link from "next/link";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import type { Agent } from "@/lib/types";
-import { TaskStatus } from "@/lib/types";
-import { tasks, workspaces } from "@/lib/mock-data";
 import { getAgentStatusDotColor, getAgentAvatarColor } from "@/lib/helpers";
 import { cn } from "@/lib/utils";
 
@@ -17,22 +14,29 @@ function getInitials(name: string): string {
     .slice(0, 2);
 }
 
-function extractRole(description?: string): string {
+function extractRole(description?: string | null): string {
   if (!description) return "Agent";
   const parts = description.split("—");
   return parts[0]?.trim() || "Agent";
 }
 
+export interface AgentCardData {
+  id: string;
+  name: string;
+  slug: string;
+  description: string | null;
+  status: string;
+  provider: string;
+  model: string;
+  workspaceName: string | null;
+  currentTaskTitle: string | null;
+}
+
 interface AgentCardProps {
-  agent: Agent;
+  agent: AgentCardData;
 }
 
 export function AgentCard({ agent }: AgentCardProps) {
-  const currentTask = tasks.find(
-    (t) => t.agentId === agent.id && t.status === TaskStatus.RUNNING
-  );
-  const workspace = workspaces.find((w) => w.id === agent.workspaceId);
-
   return (
     <Link href={`/agents/${agent.id}`} className="block">
       <Card className="group cursor-pointer transition-all hover:ring-foreground/20">
@@ -84,17 +88,17 @@ export function AgentCard({ agent }: AgentCardProps) {
             </Badge>
           </div>
 
-          {workspace && (
+          {agent.workspaceName && (
             <div className="text-xs text-muted-foreground">
               <span className="text-muted-foreground/60">Workspace:</span>{" "}
-              {workspace.name}
+              {agent.workspaceName}
             </div>
           )}
 
-          {currentTask && (
+          {agent.currentTaskTitle && (
             <div className="rounded-md border border-blue-500/20 bg-blue-500/5 px-2.5 py-1.5 text-xs text-blue-400">
               <span className="text-blue-400/60">Running:</span>{" "}
-              <span className="line-clamp-1">{currentTask.title}</span>
+              <span className="line-clamp-1">{agent.currentTaskTitle}</span>
             </div>
           )}
         </CardContent>

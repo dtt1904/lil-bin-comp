@@ -1,11 +1,11 @@
 import { NextRequest } from "next/server";
-import { store, generateId } from "@/lib/store";
+import { prisma } from "@/lib/db";
 import {
   authenticateRequest,
   jsonResponse,
   errorResponse,
 } from "@/lib/api-auth";
-import { ListingStatus, LogLevel } from "@/lib/types";
+import { ListingStatus, LogLevel, PostPlatform, PostDraftStatus } from "@/generated/prisma/enums";
 
 const VALID_STATUSES = Object.values(ListingStatus);
 
@@ -32,8 +32,6 @@ export async function POST(
   if (!auth.ok) return auth.response;
 
   const { id } = await params;
-  const listing = store.findById(store.listings, id);
-  if (!listing) return errorResponse("Listing not found", 404);
 
   let body: Record<string, unknown>;
   try {
@@ -51,56 +49,65 @@ export async function POST(
     );
   }
 
-  const targetStatus = status as ListingStatus;
-  if (!isValidTransition(listing.status, targetStatus)) {
-    return errorResponse(
-      `Invalid transition: ${listing.status} → ${targetStatus}`,
-      422
-    );
-  }
+  try {
+    const listing = await prisma.listing.findUnique({ where: { id } });
+    if (!listing) return errorResponse("Listing not found", 404);
 
-  const now = new Date();
-  const oldStatus = listing.status;
+    const targetStatus = status as ListingStatus;
+    if (!isValidTransition(listing.status, targetStatus)) {
+      return errorResponse(
+        `Invalid transition: ${listing.status} → ${targetStatus}`,
+        422
+      );
+    }
 
-  const updated = store.update(store.listings, id, {
-    status: targetStatus,
-    updatedAt: now,
-  });
+    const oldStatus = listing.status;
 
-  store.insert(store.logEvents, {
-    id: generateId("log"),
-    organizationId: auth.ctx.organizationId,
-    workspaceId: listing.workspaceId,
-    level: LogLevel.INFO,
-    message: `Listing transitioned: ${oldStatus} → ${targetStatus}`,
-    metadata: { listingId: id, from: oldStatus, to: targetStatus },
-    timestamp: now,
-  });
-
-  if (targetStatus === ListingStatus.CONTENT_DRAFTING) {
-    const draft = store.insert(store.postDrafts, {
-      id: generateId("draft"),
-      workspaceId: listing.workspaceId,
-      listingId: id,
-      platform: "FACEBOOK_PAGE" as never,
-      status: "DRAFT" as never,
-      caption: `New listing: ${listing.address}, ${listing.city}, ${listing.state} ${listing.zip}`,
-      mediaUrls: [],
-      hashtags: [],
-      createdAt: now,
-      updatedAt: now,
+    const updated = await prisma.listing.update({
+      where: { id },
+      data: { status: targetStatus },
     });
 
-    store.insert(store.logEvents, {
-      id: generateId("log"),
-      organizationId: auth.ctx.organizationId,
-      workspaceId: listing.workspaceId,
-      level: LogLevel.INFO,
-      message: `Auto-created draft for listing content drafting`,
-      metadata: { listingId: id, draftId: draft.id },
-      timestamp: now,
+    await prisma.logEvent.create({
+      data: {
+        organizationId: auth.ctx.organizationId,
+        workspaceId: listing.workspaceId,
+        level: LogLevel.INFO,
+        source: "api",
+        message: `Listing transitioned: ${oldStatus} → ${targetStatus}`,
+        metadata: { listingId: id, from: oldStatus, to: targetStatus },
+      },
+    });
+
+    if (targetStatus === ListingStatus.CONTENT_DRAFTING) {
+      const draft = await prisma.postDraft.create({
+        data: {
+          organizationId: auth.ctx.organizationId,
+          workspaceId: listing.workspaceId,
+          listingId: id,
+          platform: PostPlatform.FACEBOOK_PAGE,
+          status: PostDraftStatus.DRAFT,
+          title: `Listing: ${listing.address}`,
+          content: `New listing: ${listing.address}, ${listing.city}, ${listing.state} ${listing.zipCode}`,
+        },
+      });
+
+      await prisma.logEvent.create({
+        data: {
+          organizationId: auth.ctx.organizationId,
+          workspaceId: listing.workspaceId,
+          level: LogLevel.INFO,
+          source: "api",
+          message: `Auto-created draft for listing content drafting`,
+          metadata: { listingId: id, draftId: draft.id },
+        },
+      });
+    }
+
+    return jsonResponse({ data: updated });
+  } catch (err) {
+    return errorResponse("Failed to transition listing", 500, {
+      message: (err as Error).message,
     });
   }
-
-  return jsonResponse({ data: updated });
 }

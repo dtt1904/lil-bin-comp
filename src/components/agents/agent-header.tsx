@@ -1,5 +1,4 @@
 import { Badge } from "@/components/ui/badge";
-import type { Agent } from "@/lib/types";
 import {
   getAgentStatusDotColor,
   getAgentAvatarColor,
@@ -17,14 +16,22 @@ function getInitials(name: string): string {
     .slice(0, 2);
 }
 
-function extractRole(description?: string): string {
+function extractRole(description?: string | null): string {
   if (!description) return "Agent";
   const parts = description.split("—");
   return parts[0]?.trim() || "Agent";
 }
 
+export interface AgentHeaderData {
+  name: string;
+  slug: string;
+  description: string | null;
+  status: string;
+  role: string;
+}
+
 interface AgentHeaderProps {
-  agent: Agent;
+  agent: AgentHeaderData;
 }
 
 export function AgentHeader({ agent }: AgentHeaderProps) {
@@ -66,13 +73,13 @@ export function AgentHeader({ agent }: AgentHeaderProps) {
             {agent.description.split("—").slice(1).join("—").trim()}
           </p>
         )}
-        <div className="mt-2 flex flex-wrap gap-1.5">
-          {agent.tags.map((tag) => (
-            <Badge key={tag} variant="secondary" className="text-xs">
-              {tag}
+        {agent.role && (
+          <div className="mt-2">
+            <Badge variant="secondary" className="text-xs">
+              {agent.role}
             </Badge>
-          ))}
-        </div>
+          </div>
+        )}
       </div>
     </div>
   );

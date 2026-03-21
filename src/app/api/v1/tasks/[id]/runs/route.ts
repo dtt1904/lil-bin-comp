@@ -1,11 +1,11 @@
 import { NextRequest } from "next/server";
-import { store, generateId } from "@/lib/store";
+import { prisma } from "@/lib/db";
 import {
   authenticateRequest,
   jsonResponse,
   errorResponse,
 } from "@/lib/api-auth";
-import { TaskRunStatus, TaskStatus, LogLevel } from "@/lib/types";
+import { TaskRunStatus, TaskStatus, LogLevel } from "@/generated/prisma/enums";
 
 export async function GET(
   req: NextRequest,
@@ -15,11 +15,20 @@ export async function GET(
   if (!auth.ok) return auth.response;
 
   const { id } = await params;
-  const task = store.findById(store.tasks, id);
-  if (!task) return errorResponse("Task not found", 404);
 
-  const runs = store.filter(store.taskRuns, (r) => r.taskId === id);
-  return jsonResponse({ data: runs, meta: { total: runs.length } });
+  try {
+    const task = await prisma.task.findUnique({ where: { id } });
+    if (!task) return errorResponse("Task not found", 404);
+
+    const runs = await prisma.taskRun.findMany({
+      where: { taskId: id },
+      orderBy: { startedAt: "desc" },
+    });
+
+    return jsonResponse({ data: runs, meta: { total: runs.length } });
+  } catch (err) {
+    return errorResponse(`Failed to fetch runs: ${err instanceof Error ? err.message : err}`, 500);
+  }
 }
 
 export async function POST(
@@ -30,72 +39,81 @@ export async function POST(
   if (!auth.ok) return auth.response;
 
   const { id } = await params;
-  const task = store.findById(store.tasks, id);
-  if (!task) return errorResponse("Task not found", 404);
 
-  const body = await req.json();
+  try {
+    const task = await prisma.task.findUnique({ where: { id } });
+    if (!task) return errorResponse("Task not found", 404);
 
-  if (!body.agentId) {
-    return errorResponse("agentId is required");
-  }
+    const body = await req.json();
 
-  const agent = store.findById(store.agents, body.agentId);
-  if (!agent) return errorResponse("Agent not found", 404);
+    if (!body.agentId) {
+      return errorResponse("agentId is required");
+    }
 
-  const now = new Date();
-  const status = body.status ?? TaskRunStatus.STARTED;
-  const isTerminal = status === TaskRunStatus.COMPLETED || status === TaskRunStatus.FAILED;
+    const agent = await prisma.agent.findUnique({ where: { id: body.agentId } });
+    if (!agent) return errorResponse("Agent not found", 404);
 
-  const run = store.insert(store.taskRuns, {
-    id: generateId("run"),
-    taskId: id,
-    agentId: body.agentId,
-    status,
-    inputTokens: body.inputTokens ?? undefined,
-    outputTokens: body.outputTokens ?? undefined,
-    costUsd: body.costUsd ?? undefined,
-    resultSummary: body.resultSummary ?? undefined,
-    startedAt: now,
-    completedAt: isTerminal ? now : undefined,
-  });
+    const status = (body.status as TaskRunStatus) ?? TaskRunStatus.STARTED;
+    const isTerminal = status === TaskRunStatus.COMPLETED || status === TaskRunStatus.FAILED;
 
-  if (body.costUsd && body.costUsd > 0) {
-    store.insert(store.costRecords, {
-      id: generateId("cost"),
-      organizationId: auth.ctx.organizationId,
-      workspaceId: task.workspaceId,
-      agentId: body.agentId,
-      taskRunId: run.id,
-      model: agent.model,
-      provider: agent.provider,
-      inputTokens: body.inputTokens ?? 0,
-      outputTokens: body.outputTokens ?? 0,
-      costUsd: body.costUsd,
-      recordedAt: now,
+    const tokensUsed =
+      body.tokensUsed ?? (((body.inputTokens ?? 0) + (body.outputTokens ?? 0)) || undefined);
+
+    const run = await prisma.taskRun.create({
+      data: {
+        taskId: id,
+        agentId: body.agentId,
+        status,
+        input: body.input ?? undefined,
+        output: body.output ?? undefined,
+        tokensUsed,
+        cost: body.costUsd ?? body.cost ?? undefined,
+        completedAt: isTerminal ? new Date() : undefined,
+      },
     });
+
+    if ((body.costUsd ?? body.cost) && (body.costUsd ?? body.cost) > 0) {
+      await prisma.costRecord.create({
+        data: {
+          organizationId: task.organizationId,
+          workspaceId: task.workspaceId,
+          agentId: body.agentId,
+          taskId: id,
+          taskRunId: run.id,
+          model: agent.model,
+          provider: agent.provider,
+          tokensInput: body.inputTokens ?? 0,
+          tokensOutput: body.outputTokens ?? 0,
+          cost: body.costUsd ?? body.cost,
+        },
+      });
+    }
+
+    const taskStatusMap: Record<string, TaskStatus> = {
+      [TaskRunStatus.STARTED]: TaskStatus.RUNNING,
+      [TaskRunStatus.RUNNING]: TaskStatus.RUNNING,
+      [TaskRunStatus.COMPLETED]: TaskStatus.COMPLETED,
+      [TaskRunStatus.FAILED]: TaskStatus.FAILED,
+    };
+    const newTaskStatus = taskStatusMap[status];
+    if (newTaskStatus) {
+      await prisma.task.update({ where: { id }, data: { status: newTaskStatus } });
+    }
+
+    await prisma.logEvent.create({
+      data: {
+        organizationId: task.organizationId,
+        workspaceId: task.workspaceId,
+        taskId: id,
+        agentId: body.agentId,
+        level: status === TaskRunStatus.FAILED ? LogLevel.ERROR : LogLevel.INFO,
+        source: "api",
+        message: `Task run ${run.id} created with status ${status}`,
+      },
+    });
+
+    return jsonResponse({ data: run }, 201);
+  } catch (err) {
+    return errorResponse(`Failed to create run: ${err instanceof Error ? err.message : err}`, 500);
   }
-
-  const taskStatusMap: Record<string, TaskStatus> = {
-    [TaskRunStatus.STARTED]: TaskStatus.RUNNING,
-    [TaskRunStatus.RUNNING]: TaskStatus.RUNNING,
-    [TaskRunStatus.COMPLETED]: TaskStatus.COMPLETED,
-    [TaskRunStatus.FAILED]: TaskStatus.FAILED,
-  };
-  const newTaskStatus = taskStatusMap[status];
-  if (newTaskStatus) {
-    store.update(store.tasks, id, { status: newTaskStatus, updatedAt: now });
-  }
-
-  store.insert(store.logEvents, {
-    id: generateId("log"),
-    organizationId: auth.ctx.organizationId,
-    workspaceId: task.workspaceId,
-    taskId: id,
-    agentId: body.agentId,
-    level: status === TaskRunStatus.FAILED ? LogLevel.ERROR : LogLevel.INFO,
-    message: `Task run ${run.id} created with status ${status}`,
-    timestamp: now,
-  });
-
-  return jsonResponse({ data: run }, 201);
 }

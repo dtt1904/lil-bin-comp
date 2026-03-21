@@ -5,25 +5,34 @@ import {
   errorResponse,
   parseSearchParams,
 } from "@/lib/api-auth";
-import { store, generateId } from "@/lib/store";
-import type { Department } from "@/lib/types";
+import { prisma } from "@/lib/db";
 
 export async function GET(req: NextRequest) {
   const auth = authenticateRequest(req);
   if (!auth.ok) return auth.response;
 
-  const { workspaceId } = parseSearchParams(req);
+  const {
+    workspaceId,
+    limit: rawLimit,
+    offset: rawOffset,
+  } = parseSearchParams(req);
 
-  let results = store.departments;
+  const where: Record<string, unknown> = {};
+  if (workspaceId) where.workspaceId = workspaceId;
 
-  if (workspaceId) {
-    results = store.filter(
-      store.departments,
-      (d) => d.workspaceId === workspaceId
-    );
+  const limit = rawLimit ? parseInt(rawLimit, 10) : 50;
+  const offset = rawOffset ? parseInt(rawOffset, 10) : 0;
+
+  try {
+    const [results, total] = await Promise.all([
+      prisma.department.findMany({ where, take: limit, skip: offset }),
+      prisma.department.count({ where }),
+    ]);
+
+    return jsonResponse({ data: results, meta: { total, limit, offset } });
+  } catch {
+    return errorResponse("Internal error", 500);
   }
-
-  return jsonResponse({ data: results, meta: { total: results.length } });
 }
 
 export async function POST(req: NextRequest) {
@@ -37,9 +46,10 @@ export async function POST(req: NextRequest) {
     return errorResponse("Invalid JSON body", 400);
   }
 
-  const { workspaceId, name, description } = body as {
+  const { workspaceId, name, slug, description } = body as {
     workspaceId?: string;
     name?: string;
+    slug?: string;
     description?: string;
   };
 
@@ -50,26 +60,41 @@ export async function POST(req: NextRequest) {
     return errorResponse("Missing required fields", 400, { missing });
   }
 
-  const workspace = store.findById(store.workspaces, workspaceId!);
-  if (!workspace) {
-    return errorResponse(
-      `Workspace "${workspaceId}" not found`,
-      400,
-      { field: "workspaceId" }
-    );
+  try {
+    const workspace = await prisma.workspace.findUnique({
+      where: { id: workspaceId! },
+    });
+    if (!workspace) {
+      return errorResponse(`Workspace "${workspaceId}" not found`, 400, {
+        field: "workspaceId",
+      });
+    }
+
+    const resolvedSlug =
+      slug ||
+      name!
+        .toLowerCase()
+        .replace(/\s+/g, "-")
+        .replace(/[^a-z0-9-]/g, "");
+
+    const department = await prisma.department.create({
+      data: {
+        workspaceId: workspaceId!,
+        organizationId: workspace.organizationId,
+        name: name!,
+        slug: resolvedSlug,
+        description,
+      },
+    });
+
+    return jsonResponse({ data: department }, 201);
+  } catch (e: any) {
+    if (e.code === "P2002") {
+      return errorResponse(
+        "Department with this slug already exists in workspace",
+        409
+      );
+    }
+    return errorResponse("Internal error", 500);
   }
-
-  const now = new Date();
-  const department: Department = {
-    id: generateId("dept"),
-    workspaceId: workspaceId!,
-    name: name!,
-    description: description ?? undefined,
-    createdAt: now,
-    updatedAt: now,
-  };
-
-  store.insert(store.departments, department);
-
-  return jsonResponse({ data: department }, 201);
 }

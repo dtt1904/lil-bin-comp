@@ -4,8 +4,8 @@ import {
   jsonResponse,
   errorResponse,
 } from "@/lib/api-auth";
-import { store } from "@/lib/store";
-import { ProjectStatus } from "@/lib/types";
+import { prisma } from "@/lib/db";
+import { ProjectStatus } from "@/generated/prisma/enums";
 
 const VALID_STATUSES = Object.values(ProjectStatus);
 
@@ -17,32 +17,53 @@ export async function GET(
   if (!auth.ok) return auth.response;
 
   const { id } = await params;
-  const project = store.findById(store.projects, id);
-  if (!project) {
-    return errorResponse("Project not found", 404);
-  }
 
-  const tasks = store.filter(store.tasks, (t) => t.projectId === id);
-  const tasksByStatus: Record<string, number> = {};
-  for (const task of tasks) {
-    tasksByStatus[task.status] = (tasksByStatus[task.status] ?? 0) + 1;
-  }
+  try {
+    const project = await prisma.project.findUnique({ where: { id } });
+    if (!project) {
+      return errorResponse("Project not found", 404);
+    }
 
-  const agentIds = new Set(
-    tasks.filter((t) => t.agentId).map((t) => t.agentId!)
-  );
-  const agents = store.filter(store.agents, (a) => agentIds.has(a.id));
+    const [taskCount, tasksByStatusRaw, tasksWithAgents] = await Promise.all([
+      prisma.task.count({ where: { projectId: id } }),
+      prisma.task.groupBy({
+        by: ["status"],
+        where: { projectId: id },
+        _count: true,
+      }),
+      prisma.task.findMany({
+        where: { projectId: id, assigneeAgentId: { not: null } },
+        select: { assigneeAgentId: true },
+        distinct: ["assigneeAgentId"],
+      }),
+    ]);
 
-  return jsonResponse({
-    data: {
-      ...project,
-      _counts: {
-        tasks: tasks.length,
-        tasksByStatus,
+    const tasksByStatus: Record<string, number> = {};
+    for (const row of tasksByStatusRaw) {
+      tasksByStatus[row.status] = row._count;
+    }
+
+    const agentIds = tasksWithAgents
+      .map((t) => t.assigneeAgentId!)
+      .filter(Boolean);
+    const agents =
+      agentIds.length > 0
+        ? await prisma.agent.findMany({ where: { id: { in: agentIds } } })
+        : [];
+
+    return jsonResponse({
+      data: {
+        ...project,
+        _counts: {
+          tasks: taskCount,
+          tasksByStatus,
+        },
+        agents,
       },
-      agents,
-    },
-  });
+    });
+  } catch {
+    return errorResponse("Internal error", 500);
+  }
 }
 
 export async function PATCH(
@@ -53,10 +74,6 @@ export async function PATCH(
   if (!auth.ok) return auth.response;
 
   const { id } = await params;
-  const existing = store.findById(store.projects, id);
-  if (!existing) {
-    return errorResponse("Project not found", 404);
-  }
 
   let body: Record<string, unknown>;
   try {
@@ -65,15 +82,14 @@ export async function PATCH(
     return errorResponse("Invalid JSON body", 400);
   }
 
-  const { name, description, status, ownerId, startDate, endDate, workspaceId } =
+  const { name, description, status, workspaceId, departmentId, slug } =
     body as {
       name?: string;
       description?: string;
       status?: string;
-      ownerId?: string;
-      startDate?: string;
-      endDate?: string;
       workspaceId?: string;
+      departmentId?: string;
+      slug?: string;
     };
 
   if (status && !VALID_STATUSES.includes(status as ProjectStatus)) {
@@ -84,28 +100,41 @@ export async function PATCH(
   }
 
   if (workspaceId) {
-    const workspace = store.findById(store.workspaces, workspaceId);
-    if (!workspace) {
-      return errorResponse(`Workspace "${workspaceId}" not found`, 400, {
-        field: "workspaceId",
+    try {
+      const workspace = await prisma.workspace.findUnique({
+        where: { id: workspaceId },
       });
+      if (!workspace) {
+        return errorResponse(`Workspace "${workspaceId}" not found`, 400, {
+          field: "workspaceId",
+        });
+      }
+    } catch {
+      return errorResponse("Internal error", 500);
     }
   }
 
-  const updates: Record<string, unknown> = { updatedAt: new Date() };
-  if (name !== undefined) updates.name = name;
-  if (description !== undefined) updates.description = description;
-  if (status !== undefined) updates.status = status as ProjectStatus;
-  if (ownerId !== undefined) updates.ownerId = ownerId;
-  if (workspaceId !== undefined) updates.workspaceId = workspaceId;
-  if (startDate !== undefined)
-    updates.startDate = startDate ? new Date(startDate) : undefined;
-  if (endDate !== undefined)
-    updates.endDate = endDate ? new Date(endDate) : undefined;
+  const data: Record<string, unknown> = {};
+  if (name !== undefined) data.name = name;
+  if (slug !== undefined) data.slug = slug;
+  if (description !== undefined) data.description = description;
+  if (status !== undefined) data.status = status as ProjectStatus;
+  if (workspaceId !== undefined) data.workspaceId = workspaceId;
+  if (departmentId !== undefined) data.departmentId = departmentId;
 
-  const updated = store.update(store.projects, id, updates);
+  try {
+    const updated = await prisma.project.update({
+      where: { id },
+      data,
+    });
 
-  return jsonResponse({ data: updated });
+    return jsonResponse({ data: updated });
+  } catch (e: any) {
+    if (e.code === "P2025") return errorResponse("Project not found", 404);
+    if (e.code === "P2002")
+      return errorResponse("Unique constraint violation", 409);
+    return errorResponse("Internal error", 500);
+  }
 }
 
 export async function DELETE(
@@ -116,17 +145,12 @@ export async function DELETE(
   if (!auth.ok) return auth.response;
 
   const { id } = await params;
-  const existing = store.findById(store.projects, id);
-  if (!existing) {
-    return errorResponse("Project not found", 404);
+
+  try {
+    await prisma.project.delete({ where: { id } });
+    return jsonResponse({ success: true });
+  } catch (e: any) {
+    if (e.code === "P2025") return errorResponse("Project not found", 404);
+    return errorResponse("Internal error", 500);
   }
-
-  const projectTasks = store.filter(store.tasks, (t) => t.projectId === id);
-  for (const task of projectTasks) {
-    store.update(store.tasks, task.id, { projectId: undefined });
-  }
-
-  store.remove(store.projects, id);
-
-  return jsonResponse({ success: true });
 }

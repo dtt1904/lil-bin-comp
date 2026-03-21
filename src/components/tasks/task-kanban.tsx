@@ -1,18 +1,18 @@
 "use client";
 
-import { type Task, TaskStatus } from "@/lib/types";
 import { getStatusColor } from "@/lib/helpers";
 import { TaskCard } from "./task-card";
+import type { SerializedTask } from "./task-card";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 
-const KANBAN_COLUMNS: { status: TaskStatus; label: string }[] = [
-  { status: TaskStatus.BACKLOG, label: "Backlog" },
-  { status: TaskStatus.QUEUED, label: "Queued" },
-  { status: TaskStatus.RUNNING, label: "Running" },
-  { status: TaskStatus.BLOCKED, label: "Blocked" },
-  { status: TaskStatus.AWAITING_APPROVAL, label: "Awaiting Approval" },
-  { status: TaskStatus.COMPLETED, label: "Completed" },
+const KANBAN_COLUMNS: { status: string; label: string }[] = [
+  { status: "BACKLOG", label: "Backlog" },
+  { status: "QUEUED", label: "Queued" },
+  { status: "RUNNING", label: "Running" },
+  { status: "BLOCKED", label: "Blocked" },
+  { status: "AWAITING_APPROVAL", label: "Awaiting Approval" },
+  { status: "COMPLETED", label: "Completed" },
 ];
 
 const STATUS_DOT_COLOR: Record<string, string> = {
@@ -26,8 +26,8 @@ const STATUS_DOT_COLOR: Record<string, string> = {
   ARCHIVED: "bg-zinc-500",
 };
 
-export function TaskKanban({ tasks }: { tasks: Task[] }) {
-  const grouped = new Map<TaskStatus, Task[]>();
+export function TaskKanban({ tasks }: { tasks: SerializedTask[] }) {
+  const grouped = new Map<string, SerializedTask[]>();
   for (const col of KANBAN_COLUMNS) {
     grouped.set(col.status, []);
   }

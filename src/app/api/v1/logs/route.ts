@@ -1,50 +1,48 @@
 import { NextRequest } from "next/server";
+import { prisma } from "@/lib/db";
 import {
   authenticateRequest,
   jsonResponse,
   errorResponse,
   parseSearchParams,
 } from "@/lib/api-auth";
-import { store, generateId } from "@/lib/store";
-import type { LogEvent } from "@/lib/types";
-import { LogLevel } from "@/lib/types";
+import { LogLevel } from "@/generated/prisma/enums";
 
 export async function GET(req: NextRequest) {
   const auth = authenticateRequest(req);
   if (!auth.ok) return auth.response;
 
   const q = parseSearchParams(req);
-  let results = store.logEvents;
-
-  if (q.workspaceId) {
-    results = store.filter(results, (l) => l.workspaceId === q.workspaceId);
-  }
-  if (q.agentId) {
-    results = store.filter(results, (l) => l.agentId === q.agentId);
-  }
-  if (q.taskId) {
-    results = store.filter(results, (l) => l.taskId === q.taskId);
-  }
-  if (q.level) {
-    results = store.filter(results, (l) => l.level === q.level);
-  }
-  if (q.search) {
-    const s = q.search.toLowerCase();
-    results = store.filter(results, (l) =>
-      l.message.toLowerCase().includes(s),
-    );
-  }
-
-  results = [...results].sort(
-    (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime(),
-  );
-
-  const total = results.length;
   const limit = parseInt(q.limit || "100", 10);
   const offset = parseInt(q.offset || "0", 10);
-  const page = results.slice(offset, offset + limit);
 
-  return jsonResponse({ data: page, meta: { total, limit, offset } });
+  try {
+    const where: Record<string, unknown> = {
+      organizationId: auth.ctx.organizationId,
+    };
+
+    if (q.workspaceId) where.workspaceId = q.workspaceId;
+    if (q.agentId) where.agentId = q.agentId;
+    if (q.taskId) where.taskId = q.taskId;
+    if (q.level) where.level = q.level as LogLevel;
+    if (q.search) {
+      where.message = { contains: q.search, mode: "insensitive" };
+    }
+
+    const [data, total] = await Promise.all([
+      prisma.logEvent.findMany({
+        where,
+        skip: offset,
+        take: limit,
+        orderBy: { createdAt: "desc" },
+      }),
+      prisma.logEvent.count({ where }),
+    ]);
+
+    return jsonResponse({ data, meta: { total, limit, offset } });
+  } catch (err) {
+    return errorResponse(`Failed to fetch logs: ${err instanceof Error ? err.message : err}`, 500);
+  }
 }
 
 export async function POST(req: NextRequest) {
@@ -61,18 +59,22 @@ export async function POST(req: NextRequest) {
     return errorResponse(`Invalid level. Must be one of: ${Object.values(LogLevel).join(", ")}`);
   }
 
-  const event: LogEvent = {
-    id: generateId("log"),
-    organizationId: auth.ctx.organizationId,
-    workspaceId: body.workspaceId,
-    agentId: body.agentId,
-    taskId: body.taskId,
-    level: body.level,
-    message: body.message,
-    metadata: body.metadata,
-    timestamp: new Date(),
-  };
+  try {
+    const event = await prisma.logEvent.create({
+      data: {
+        organizationId: auth.ctx.organizationId,
+        workspaceId: body.workspaceId ?? undefined,
+        agentId: body.agentId ?? undefined,
+        taskId: body.taskId ?? undefined,
+        level: body.level as LogLevel,
+        source: body.source ?? "api",
+        message: body.message,
+        metadata: body.metadata ?? undefined,
+      },
+    });
 
-  store.insert(store.logEvents, event);
-  return jsonResponse({ data: event }, 201);
+    return jsonResponse({ data: event }, 201);
+  } catch (err) {
+    return errorResponse(`Failed to create log: ${err instanceof Error ? err.message : err}`, 500);
+  }
 }

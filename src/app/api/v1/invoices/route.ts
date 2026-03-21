@@ -1,12 +1,12 @@
 import { NextRequest } from "next/server";
-import { store, generateId } from "@/lib/store";
+import { prisma } from "@/lib/db";
 import {
   authenticateRequest,
   jsonResponse,
   errorResponse,
   parseSearchParams,
 } from "@/lib/api-auth";
-import { InvoiceStatus } from "@/lib/types";
+import { InvoiceStatus } from "@/generated/prisma/enums";
 
 const VALID_STATUSES = Object.values(InvoiceStatus);
 
@@ -18,38 +18,51 @@ export async function GET(req: NextRequest) {
   const limit = Math.min(parseInt(params.limit || "50", 10) || 50, 200);
   const offset = parseInt(params.offset || "0", 10) || 0;
 
-  let results = store.invoiceSnapshots;
+  try {
+    const where: Record<string, unknown> = {};
 
-  if (params.workspaceId) {
-    results = store.filter(results, (i) => i.workspaceId === params.workspaceId);
-  }
-  if (params.status) {
-    if (!VALID_STATUSES.includes(params.status as InvoiceStatus)) {
-      return errorResponse(
-        `Invalid status. Must be one of: ${VALID_STATUSES.join(", ")}`,
-        400
-      );
+    if (params.workspaceId) where.workspaceId = params.workspaceId;
+    if (params.status) {
+      if (!VALID_STATUSES.includes(params.status as InvoiceStatus)) {
+        return errorResponse(
+          `Invalid status. Must be one of: ${VALID_STATUSES.join(", ")}`,
+          400
+        );
+      }
+      where.status = params.status as InvoiceStatus;
     }
-    results = store.filter(results, (i) => i.status === params.status);
-  }
-  if (params.clientName) {
-    const q = params.clientName.toLowerCase();
-    results = store.filter(results, (i) =>
-      i.clientName.toLowerCase().includes(q)
-    );
-  }
-  if (params.overdue === "true") {
-    const now = new Date();
-    results = store.filter(results, (i) =>
-      i.status === InvoiceStatus.OVERDUE ||
-      (i.status === InvoiceStatus.SENT && new Date(i.dueDate) < now)
-    );
-  }
+    if (params.customerName) {
+      where.customerName = {
+        contains: params.customerName,
+        mode: "insensitive",
+      };
+    }
+    if (params.overdue === "true") {
+      where.OR = [
+        { status: InvoiceStatus.OVERDUE },
+        {
+          status: InvoiceStatus.SENT,
+          dueDate: { lt: new Date() },
+        },
+      ];
+    }
 
-  const total = results.length;
-  const data = results.slice(offset, offset + limit);
+    const [data, total] = await Promise.all([
+      prisma.invoiceSnapshot.findMany({
+        where,
+        skip: offset,
+        take: limit,
+        orderBy: { createdAt: "desc" },
+      }),
+      prisma.invoiceSnapshot.count({ where }),
+    ]);
 
-  return jsonResponse({ data, meta: { total, limit, offset } });
+    return jsonResponse({ data, meta: { total, limit, offset } });
+  } catch (err) {
+    return errorResponse("Failed to fetch invoices", 500, {
+      message: (err as Error).message,
+    });
+  }
 }
 
 export async function POST(req: NextRequest) {
@@ -63,43 +76,49 @@ export async function POST(req: NextRequest) {
     return errorResponse("Invalid JSON body", 400);
   }
 
-  const { workspaceId, invoiceNumber, clientName, amount, dueDate } = body as {
-    workspaceId?: string;
-    invoiceNumber?: string;
-    clientName?: string;
-    amount?: number;
-    dueDate?: string;
-  };
+  const { workspaceId, invoiceNumber, customerName, amount, dueDate } =
+    body as {
+      workspaceId?: string;
+      invoiceNumber?: string;
+      customerName?: string;
+      amount?: number;
+      dueDate?: string;
+    };
 
   const missing: string[] = [];
   if (!workspaceId) missing.push("workspaceId");
   if (!invoiceNumber) missing.push("invoiceNumber");
-  if (!clientName) missing.push("clientName");
+  if (!customerName) missing.push("customerName");
   if (amount === undefined || amount === null) missing.push("amount");
   if (!dueDate) missing.push("dueDate");
   if (missing.length > 0) {
     return errorResponse("Missing required fields", 400, { missing });
   }
 
-  const workspace = store.findById(store.workspaces, workspaceId!);
-  if (!workspace) return errorResponse("Workspace not found", 404);
+  try {
+    const workspace = await prisma.workspace.findUnique({
+      where: { id: workspaceId! },
+    });
+    if (!workspace) return errorResponse("Workspace not found", 404);
 
-  const now = new Date();
-  const invoice = store.insert(store.invoiceSnapshots, {
-    id: generateId("inv"),
-    workspaceId: workspaceId!,
-    invoiceNumber: invoiceNumber!,
-    clientName: clientName!,
-    amount: amount!,
-    status: (body.status as InvoiceStatus) ?? InvoiceStatus.DRAFT,
-    issuedAt: body.issuedAt ? new Date(body.issuedAt as string) : now,
-    dueDate: new Date(dueDate!),
-    paidAt: undefined,
-    stripePaymentId: (body.stripePaymentId as string) ?? undefined,
-    notes: (body.notes as string) ?? undefined,
-    createdAt: now,
-    updatedAt: now,
-  });
+    const invoice = await prisma.invoiceSnapshot.create({
+      data: {
+        organizationId: auth.ctx.organizationId,
+        workspaceId: workspaceId!,
+        invoiceNumber: invoiceNumber!,
+        customerName: customerName!,
+        customerEmail: (body.customerEmail as string) ?? undefined,
+        amount: amount!,
+        status: (body.status as InvoiceStatus) ?? InvoiceStatus.DRAFT,
+        dueDate: new Date(dueDate!),
+        items: body.notes ? { notes: body.notes } : undefined,
+      },
+    });
 
-  return jsonResponse({ data: invoice }, 201);
+    return jsonResponse({ data: invoice }, 201);
+  } catch (err) {
+    return errorResponse("Failed to create invoice", 500, {
+      message: (err as Error).message,
+    });
+  }
 }

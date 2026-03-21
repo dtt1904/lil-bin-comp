@@ -1,6 +1,5 @@
 "use client";
 
-import { logEvents, agents } from "@/lib/mock-data";
 import { formatRelativeTime } from "@/lib/helpers";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -23,13 +22,19 @@ const LOG_ICON_MAP: Record<
   DEBUG: { icon: Bug, color: "text-zinc-500" },
 };
 
-export function RecentActivity() {
-  const recent = [...logEvents]
-    .sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime())
-    .slice(0, 8);
+interface LogEventRow {
+  id: string;
+  level: string;
+  message: string;
+  createdAt: string;
+  agentName: string | null;
+}
 
-  const agentMap = new Map(agents.map((a) => [a.id, a]));
+interface RecentActivityProps {
+  logEvents: LogEventRow[];
+}
 
+export function RecentActivity({ logEvents }: RecentActivityProps) {
   return (
     <Card>
       <CardHeader>
@@ -37,10 +42,7 @@ export function RecentActivity() {
       </CardHeader>
       <CardContent>
         <div className="space-y-1">
-          {recent.map((event) => {
-            const agent = event.agentId
-              ? agentMap.get(event.agentId)
-              : null;
+          {logEvents.map((event) => {
             const { icon: Icon, color } =
               LOG_ICON_MAP[event.level] ?? LOG_ICON_MAP.INFO;
 
@@ -57,16 +59,16 @@ export function RecentActivity() {
                     {event.message}
                   </p>
                   <div className="mt-1 flex items-center gap-2">
-                    {agent && (
+                    {event.agentName && (
                       <>
                         <span className="text-xs font-medium text-muted-foreground">
-                          {agent.name}
+                          {event.agentName}
                         </span>
                         <span className="text-muted-foreground/40">·</span>
                       </>
                     )}
                     <span className="text-xs text-muted-foreground">
-                      {formatRelativeTime(event.timestamp)}
+                      {formatRelativeTime(new Date(event.createdAt))}
                     </span>
                   </div>
                 </div>

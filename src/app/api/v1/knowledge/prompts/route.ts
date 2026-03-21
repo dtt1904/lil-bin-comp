@@ -1,44 +1,50 @@
 import { NextRequest } from "next/server";
+import { prisma } from "@/lib/db";
 import {
   authenticateRequest,
   jsonResponse,
   errorResponse,
   parseSearchParams,
 } from "@/lib/api-auth";
-import { store, generateId } from "@/lib/store";
-import type { PromptTemplate } from "@/lib/types";
-import { Visibility } from "@/lib/types";
+import { Visibility } from "@/generated/prisma/enums";
 
 export async function GET(req: NextRequest) {
   const auth = authenticateRequest(req);
   if (!auth.ok) return auth.response;
 
   const q = parseSearchParams(req);
-  let results = store.promptTemplates;
-
-  if (q.workspaceId) {
-    results = store.filter(results, (p) => p.workspaceId === q.workspaceId);
-  }
-  if (q.visibility) {
-    results = store.filter(results, (p) => p.visibility === q.visibility);
-  }
-  if (q.search) {
-    const s = q.search.toLowerCase();
-    results = store.filter(
-      results,
-      (p) =>
-        p.name.toLowerCase().includes(s) ||
-        (p.description?.toLowerCase().includes(s) ?? false) ||
-        p.template.toLowerCase().includes(s),
-    );
-  }
-
-  const total = results.length;
   const limit = parseInt(q.limit || "50", 10);
   const offset = parseInt(q.offset || "0", 10);
-  const page = results.slice(offset, offset + limit);
 
-  return jsonResponse({ data: page, meta: { total, limit, offset } });
+  try {
+    const where: Record<string, unknown> = {
+      organizationId: auth.ctx.organizationId,
+    };
+
+    if (q.workspaceId) where.workspaceId = q.workspaceId;
+    if (q.visibility) where.visibility = q.visibility as Visibility;
+    if (q.search) {
+      where.OR = [
+        { name: { contains: q.search, mode: "insensitive" } },
+        { description: { contains: q.search, mode: "insensitive" } },
+        { template: { contains: q.search, mode: "insensitive" } },
+      ];
+    }
+
+    const [data, total] = await Promise.all([
+      prisma.promptTemplate.findMany({
+        where,
+        skip: offset,
+        take: limit,
+        orderBy: { createdAt: "desc" },
+      }),
+      prisma.promptTemplate.count({ where }),
+    ]);
+
+    return jsonResponse({ data, meta: { total, limit, offset } });
+  } catch (err) {
+    return errorResponse(`Failed to fetch prompts: ${err instanceof Error ? err.message : err}`, 500);
+  }
 }
 
 export async function POST(req: NextRequest) {
@@ -51,20 +57,22 @@ export async function POST(req: NextRequest) {
     return errorResponse("name and template are required");
   }
 
-  const prompt: PromptTemplate = {
-    id: generateId("prompt"),
-    organizationId: auth.ctx.organizationId,
-    workspaceId: body.workspaceId,
-    name: body.name,
-    description: body.description,
-    template: body.template,
-    variables: body.variables ?? [],
-    visibility: body.visibility ?? Visibility.WORKSPACE,
-    createdById: body.createdById ?? "user-1",
-    createdAt: new Date(),
-    updatedAt: new Date(),
-  };
+  try {
+    const prompt = await prisma.promptTemplate.create({
+      data: {
+        organizationId: auth.ctx.organizationId,
+        workspaceId: body.workspaceId ?? undefined,
+        name: body.name,
+        description: body.description ?? undefined,
+        template: body.template,
+        variables: body.variables ?? [],
+        visibility: (body.visibility as Visibility) ?? Visibility.WORKSPACE,
+        tags: body.tags ?? [],
+      },
+    });
 
-  store.insert(store.promptTemplates, prompt);
-  return jsonResponse({ data: prompt }, 201);
+    return jsonResponse({ data: prompt }, 201);
+  } catch (err) {
+    return errorResponse(`Failed to create prompt: ${err instanceof Error ? err.message : err}`, 500);
+  }
 }

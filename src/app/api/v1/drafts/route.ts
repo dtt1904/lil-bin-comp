@@ -1,12 +1,12 @@
 import { NextRequest } from "next/server";
-import { store, generateId } from "@/lib/store";
+import { prisma } from "@/lib/db";
 import {
   authenticateRequest,
   jsonResponse,
   errorResponse,
   parseSearchParams,
 } from "@/lib/api-auth";
-import { PostDraftStatus, PostPlatform, LogLevel } from "@/lib/types";
+import { PostDraftStatus, PostPlatform, LogLevel } from "@/generated/prisma/enums";
 
 export async function GET(req: NextRequest) {
   const auth = authenticateRequest(req);
@@ -16,25 +16,30 @@ export async function GET(req: NextRequest) {
   const limit = Math.min(parseInt(params.limit || "50", 10) || 50, 200);
   const offset = parseInt(params.offset || "0", 10) || 0;
 
-  let results = store.postDrafts;
+  try {
+    const where: Record<string, unknown> = {};
 
-  if (params.workspaceId) {
-    results = store.filter(results, (d) => d.workspaceId === params.workspaceId);
-  }
-  if (params.listingId) {
-    results = store.filter(results, (d) => d.listingId === params.listingId);
-  }
-  if (params.platform) {
-    results = store.filter(results, (d) => d.platform === params.platform);
-  }
-  if (params.status) {
-    results = store.filter(results, (d) => d.status === params.status);
-  }
+    if (params.workspaceId) where.workspaceId = params.workspaceId;
+    if (params.listingId) where.listingId = params.listingId;
+    if (params.platform) where.platform = params.platform as PostPlatform;
+    if (params.status) where.status = params.status as PostDraftStatus;
 
-  const total = results.length;
-  const data = results.slice(offset, offset + limit);
+    const [data, total] = await Promise.all([
+      prisma.postDraft.findMany({
+        where,
+        skip: offset,
+        take: limit,
+        orderBy: { createdAt: "desc" },
+      }),
+      prisma.postDraft.count({ where }),
+    ]);
 
-  return jsonResponse({ data, meta: { total, limit, offset } });
+    return jsonResponse({ data, meta: { total, limit, offset } });
+  } catch (err) {
+    return errorResponse("Failed to fetch drafts", 500, {
+      message: (err as Error).message,
+    });
+  }
 }
 
 export async function POST(req: NextRequest) {
@@ -48,26 +53,19 @@ export async function POST(req: NextRequest) {
     return errorResponse("Invalid JSON body", 400);
   }
 
-  const { workspaceId, platform, caption } = body as {
+  const { workspaceId, platform, caption, title } = body as {
     workspaceId?: string;
     platform?: string;
     caption?: string;
+    title?: string;
   };
 
   const missing: string[] = [];
   if (!workspaceId) missing.push("workspaceId");
   if (!platform) missing.push("platform");
-  if (!caption) missing.push("caption");
+  if (!caption && !body.content) missing.push("caption or content");
   if (missing.length > 0) {
     return errorResponse("Missing required fields", 400, { missing });
-  }
-
-  const workspace = store.findById(store.workspaces, workspaceId!);
-  if (!workspace) return errorResponse("Workspace not found", 404);
-
-  if (body.listingId) {
-    const listing = store.findById(store.listings, body.listingId as string);
-    if (!listing) return errorResponse("Listing not found", 404);
   }
 
   if (!Object.values(PostPlatform).includes(platform as PostPlatform)) {
@@ -77,36 +75,59 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  if (body.createdByAgentId) {
-    const agent = store.findById(store.agents, body.createdByAgentId as string);
-    if (!agent) return errorResponse("Agent not found", 404);
+  try {
+    const workspace = await prisma.workspace.findUnique({
+      where: { id: workspaceId! },
+    });
+    if (!workspace) return errorResponse("Workspace not found", 404);
+
+    if (body.listingId) {
+      const listing = await prisma.listing.findUnique({
+        where: { id: body.listingId as string },
+      });
+      if (!listing) return errorResponse("Listing not found", 404);
+    }
+
+    if (body.createdByAgentId) {
+      const agent = await prisma.agent.findUnique({
+        where: { id: body.createdByAgentId as string },
+      });
+      if (!agent) return errorResponse("Agent not found", 404);
+    }
+
+    const content = (body.content as string) || caption!;
+
+    const draft = await prisma.postDraft.create({
+      data: {
+        organizationId: auth.ctx.organizationId,
+        workspaceId: workspaceId!,
+        listingId: (body.listingId as string) ?? undefined,
+        platform: platform as PostPlatform,
+        status: (body.status as PostDraftStatus) ?? PostDraftStatus.DRAFT,
+        title: title || content.slice(0, 100),
+        content,
+        scheduledAt: body.scheduledAt
+          ? new Date(body.scheduledAt as string)
+          : undefined,
+        createdByAgentId: (body.createdByAgentId as string) ?? undefined,
+      },
+    });
+
+    await prisma.logEvent.create({
+      data: {
+        organizationId: auth.ctx.organizationId,
+        workspaceId: draft.workspaceId,
+        level: LogLevel.INFO,
+        source: "api",
+        message: `Post draft created for ${draft.platform}`,
+        metadata: { draftId: draft.id, listingId: draft.listingId },
+      },
+    });
+
+    return jsonResponse({ data: draft }, 201);
+  } catch (err) {
+    return errorResponse("Failed to create draft", 500, {
+      message: (err as Error).message,
+    });
   }
-
-  const now = new Date();
-  const draft = store.insert(store.postDrafts, {
-    id: generateId("draft"),
-    workspaceId: workspaceId!,
-    listingId: (body.listingId as string) ?? undefined,
-    platform: platform as PostPlatform,
-    status: (body.status as PostDraftStatus) ?? PostDraftStatus.DRAFT,
-    caption: caption!,
-    mediaUrls: (body.mediaUrls as string[]) ?? [],
-    hashtags: (body.hashtags as string[]) ?? [],
-    scheduledAt: body.scheduledAt ? new Date(body.scheduledAt as string) : undefined,
-    createdByAgentId: (body.createdByAgentId as string) ?? undefined,
-    createdAt: now,
-    updatedAt: now,
-  });
-
-  store.insert(store.logEvents, {
-    id: generateId("log"),
-    organizationId: auth.ctx.organizationId,
-    workspaceId: draft.workspaceId,
-    level: LogLevel.INFO,
-    message: `Post draft created for ${draft.platform}`,
-    metadata: { draftId: draft.id, listingId: draft.listingId },
-    timestamp: now,
-  });
-
-  return jsonResponse({ data: draft }, 201);
 }

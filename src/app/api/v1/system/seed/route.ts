@@ -1,11 +1,10 @@
 import { NextRequest } from "next/server";
-import { store, generateId } from "@/lib/store";
+import { prisma } from "@/lib/db";
 import {
   authenticateRequest,
   jsonResponse,
   errorResponse,
 } from "@/lib/api-auth";
-import { LogLevel } from "@/lib/types";
 
 export async function POST(req: NextRequest) {
   const auth = authenticateRequest(req);
@@ -19,18 +18,52 @@ export async function POST(req: NextRequest) {
   }
 
   if (body.confirm !== true) {
-    return errorResponse("Must send { confirm: true } to reset store", 400);
+    return errorResponse(
+      "Must send { confirm: true } to reset database",
+      400
+    );
   }
 
-  store.reset();
+  try {
+    await prisma.$transaction([
+      prisma.shareTask.deleteMany(),
+      prisma.publishedPost.deleteMany(),
+      prisma.postDraft.deleteMany(),
+      prisma.mediaAsset.deleteMany(),
+      prisma.invoiceSnapshot.deleteMany(),
+      prisma.listing.deleteMany(),
+      prisma.integrationAccount.deleteMany(),
+      prisma.costRecord.deleteMany(),
+      prisma.logEvent.deleteMany(),
+      prisma.notification.deleteMany(),
+      prisma.agentHeartbeat.deleteMany(),
+      prisma.comment.deleteMany(),
+      prisma.approval.deleteMany(),
+      prisma.taskRun.deleteMany(),
+      prisma.taskDependency.deleteMany(),
+      prisma.artifact.deleteMany(),
+      prisma.task.deleteMany(),
+      prisma.project.deleteMany(),
+      prisma.moduleInstallation.deleteMany(),
+      prisma.integration.deleteMany(),
+      prisma.promptTemplate.deleteMany(),
+      prisma.sOPDocument.deleteMany(),
+      prisma.memoryEntry.deleteMany(),
+      prisma.agentPermission.deleteMany(),
+      prisma.agent.deleteMany(),
+      prisma.user.deleteMany(),
+      prisma.department.deleteMany(),
+      prisma.workspace.deleteMany(),
+      prisma.organization.deleteMany(),
+    ]);
 
-  store.insert(store.logEvents, {
-    id: generateId("log"),
-    organizationId: auth.ctx.organizationId,
-    level: LogLevel.WARN,
-    message: "Store reset to initial seed data",
-    timestamp: new Date(),
-  });
-
-  return jsonResponse({ success: true, message: "Store reset to initial seed data" });
+    return jsonResponse({
+      success: true,
+      message: "Database cleared. Run npm run db:seed to re-seed.",
+    });
+  } catch (err) {
+    return errorResponse("Failed to reset database", 500, {
+      message: (err as Error).message,
+    });
+  }
 }

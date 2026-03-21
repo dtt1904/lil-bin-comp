@@ -1,9 +1,7 @@
-"use client";
-
+export const dynamic = "force-dynamic";
 import Link from "next/link";
 import { Plus, Users, ListChecks, FolderKanban, Bot } from "lucide-react";
-import { departments, workspaces, agents, tasks, projects } from "@/lib/mock-data";
-import { TaskStatus } from "@/lib/types";
+import { prisma } from "@/lib/db";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -11,38 +9,31 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { getAgentAvatarColor } from "@/lib/helpers";
 import { cn } from "@/lib/utils";
 
-const ACTIVE_TASK_STATUSES = [
-  TaskStatus.RUNNING,
-  TaskStatus.QUEUED,
-  TaskStatus.BLOCKED,
-  TaskStatus.AWAITING_APPROVAL,
-];
+const ACTIVE_TASK_STATUSES = ["RUNNING", "QUEUED", "BLOCKED", "AWAITING_APPROVAL"];
 
-const workspaceMap = new Map(workspaces.map((w) => [w.id, w]));
+export default async function DepartmentsPage() {
+  const [departments, workspaces] = await Promise.all([
+    prisma.department.findMany({
+      include: {
+        workspace: { select: { id: true, name: true, type: true } },
+        manager: { select: { id: true, name: true } },
+        agents: { select: { id: true, name: true } },
+        tasks: { select: { id: true, status: true, projectId: true } },
+        projects: { select: { id: true } },
+      },
+      orderBy: { name: "asc" },
+    }),
+    prisma.workspace.findMany({
+      select: { id: true, name: true, type: true },
+      orderBy: { name: "asc" },
+    }),
+  ]);
 
-const deptsByWorkspace = workspaces.map((ws) => ({
-  workspace: ws,
-  departments: departments.filter((d) => d.workspaceId === ws.id),
-}));
+  const deptsByWorkspace = workspaces.map((ws) => ({
+    workspace: ws,
+    departments: departments.filter((d) => d.workspaceId === ws.id),
+  })).filter((g) => g.departments.length > 0);
 
-function getDeptStats(deptId: string) {
-  const deptAgents = agents.filter((a) => a.departmentId === deptId);
-  const deptAgentIds = new Set(deptAgents.map((a) => a.id));
-  const deptTasks = tasks.filter((t) => t.agentId && deptAgentIds.has(t.agentId));
-  const activeTasks = deptTasks.filter((t) => ACTIVE_TASK_STATUSES.includes(t.status));
-  const deptProjectIds = new Set(deptTasks.filter((t) => t.projectId).map((t) => t.projectId));
-  const deptProjects = projects.filter((p) => deptProjectIds.has(p.id));
-  const manager = deptAgents.length > 0 ? deptAgents[0] : null;
-
-  return {
-    agentCount: deptAgents.length,
-    activeTaskCount: activeTasks.length,
-    projectCount: deptProjects.length,
-    manager,
-  };
-}
-
-export default function DepartmentsPage() {
   return (
     <div className="min-h-screen bg-background">
       <div className="mx-auto max-w-[1400px] px-4 py-8 sm:px-6 lg:px-8">
@@ -85,8 +76,12 @@ export default function DepartmentsPage() {
 
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
                 {depts.map((dept) => {
-                  const stats = getDeptStats(dept.id);
-                  const ws = workspaceMap.get(dept.workspaceId);
+                  const activeTasks = dept.tasks.filter((t) =>
+                    ACTIVE_TASK_STATUSES.includes(t.status)
+                  );
+                  const projectIds = new Set(
+                    dept.tasks.filter((t) => t.projectId).map((t) => t.projectId)
+                  );
 
                   return (
                     <Link key={dept.id} href={`/departments/${dept.id}`}>
@@ -98,18 +93,18 @@ export default function DepartmentsPage() {
                                 {dept.name}
                               </h3>
                               <p className="mt-0.5 text-xs text-muted-foreground">
-                                {ws?.name}
+                                {dept.workspace.name}
                               </p>
                             </div>
-                            {stats.manager && (
+                            {dept.manager && (
                               <Avatar size="sm">
                                 <AvatarFallback
                                   className={cn(
-                                    getAgentAvatarColor(stats.manager.name),
+                                    getAgentAvatarColor(dept.manager.name),
                                     "text-[10px] font-bold text-white"
                                   )}
                                 >
-                                  {stats.manager.name[0].toUpperCase()}
+                                  {dept.manager.name[0].toUpperCase()}
                                 </AvatarFallback>
                               </Avatar>
                             )}
@@ -124,23 +119,23 @@ export default function DepartmentsPage() {
                           <div className="flex items-center gap-4 pt-1">
                             <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
                               <Bot className="h-3.5 w-3.5" />
-                              <span>{stats.agentCount}</span>
+                              <span>{dept.agents.length}</span>
                             </div>
                             <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
                               <ListChecks className="h-3.5 w-3.5" />
-                              <span>{stats.activeTaskCount} active</span>
+                              <span>{activeTasks.length} active</span>
                             </div>
                             <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
                               <FolderKanban className="h-3.5 w-3.5" />
-                              <span>{stats.projectCount}</span>
+                              <span>{dept.projects.length}</span>
                             </div>
                           </div>
 
-                          {stats.manager && (
+                          {dept.manager && (
                             <div className="flex items-center gap-2 border-t border-border pt-3">
                               <Users className="h-3.5 w-3.5 text-muted-foreground" />
                               <span className="text-xs text-muted-foreground">
-                                Lead: <span className="text-foreground">{stats.manager.name}</span>
+                                Lead: <span className="text-foreground">{dept.manager.name}</span>
                               </span>
                             </div>
                           )}

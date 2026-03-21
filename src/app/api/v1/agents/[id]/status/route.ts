@@ -4,9 +4,8 @@ import {
   jsonResponse,
   errorResponse,
 } from "@/lib/api-auth";
-import { store, generateId } from "@/lib/store";
-import { AgentStatus, LogLevel } from "@/lib/types";
-import type { AgentHeartbeat, LogEvent } from "@/lib/types";
+import { prisma } from "@/lib/db";
+import { AgentStatus, LogLevel } from "@/generated/prisma/enums";
 
 const VALID_STATUSES = Object.values(AgentStatus);
 
@@ -18,10 +17,6 @@ export async function PATCH(
   if (!auth.ok) return auth.response;
 
   const { id } = await params;
-  const agent = store.findById(store.agents, id);
-  if (!agent) {
-    return errorResponse("Agent not found", 404);
-  }
 
   let body: Record<string, unknown>;
   try {
@@ -43,42 +38,47 @@ export async function PATCH(
     );
   }
 
-  const previousStatus = agent.status;
-  const now = new Date();
+  try {
+    const agent = await prisma.agent.findUnique({ where: { id } });
+    if (!agent) {
+      return errorResponse("Agent not found", 404);
+    }
 
-  store.update(store.agents, id, {
-    status: status as AgentStatus,
-    lastActiveAt: now,
-    updatedAt: now,
-  });
+    const previousStatus = agent.status;
 
-  const heartbeat: AgentHeartbeat = {
-    id: generateId("hb"),
-    agentId: id,
-    status: status as AgentStatus,
-    timestamp: now,
-  };
-  store.insert(store.agentHeartbeats, heartbeat);
+    const [updated, heartbeat, logEvent] = await prisma.$transaction([
+      prisma.agent.update({
+        where: { id },
+        data: { status: status as AgentStatus },
+      }),
+      prisma.agentHeartbeat.create({
+        data: {
+          agentId: id,
+          status: status as AgentStatus,
+        },
+      }),
+      prisma.logEvent.create({
+        data: {
+          organizationId: auth.ctx.organizationId,
+          workspaceId: agent.workspaceId,
+          agentId: id,
+          level: LogLevel.INFO,
+          source: "agent-status",
+          message: `Agent status changed from ${previousStatus} to ${status}`,
+          metadata: { previousStatus, newStatus: status },
+        },
+      }),
+    ]);
 
-  const logEvent: LogEvent = {
-    id: generateId("log"),
-    organizationId: auth.ctx.organizationId,
-    workspaceId: agent.workspaceId,
-    agentId: id,
-    level: LogLevel.INFO,
-    message: `Agent status changed from ${previousStatus} to ${status}`,
-    metadata: { previousStatus, newStatus: status },
-    timestamp: now,
-  };
-  store.insert(store.logEvents, logEvent);
-
-  const updated = store.findById(store.agents, id);
-
-  return jsonResponse({
-    data: {
-      agent: updated,
-      heartbeat,
-      logEvent,
-    },
-  });
+    return jsonResponse({
+      data: {
+        agent: updated,
+        heartbeat,
+        logEvent,
+      },
+    });
+  } catch (e: any) {
+    if (e.code === "P2025") return errorResponse("Agent not found", 404);
+    return errorResponse("Internal error", 500);
+  }
 }

@@ -1,3 +1,4 @@
+export const dynamic = "force-dynamic";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import {
@@ -7,7 +8,6 @@ import {
   ListChecks,
   FolderKanban,
   Building2,
-  Calendar,
   Settings,
   Activity,
 } from "lucide-react";
@@ -28,21 +28,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Separator } from "@/components/ui/separator";
-import {
-  workspaces,
-  departments,
-  agents,
-  tasks,
-  projects,
-  logEvents,
-  organization,
-} from "@/lib/mock-data";
-import {
-  TaskStatus,
-  ProjectStatus,
-  AgentStatus,
-} from "@/lib/types";
+import { prisma } from "@/lib/db";
 import {
   formatRelativeTime,
   getStatusColor,
@@ -58,37 +44,66 @@ export default async function WorkspaceDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const workspace = workspaces.find((w) => w.id === id);
+
+  const workspace = await prisma.workspace.findUnique({
+    where: { id },
+    include: { organization: { select: { name: true } } },
+  });
 
   if (!workspace) {
     notFound();
   }
 
-  const wsDepartments = departments.filter((d) => d.workspaceId === id);
-  const wsAgents = agents.filter((a) => a.workspaceId === id);
-  const wsTasks = tasks.filter((t) => t.workspaceId === id);
-  const wsProjects = projects.filter((p) => p.workspaceId === id);
-  const wsLogs = logEvents
-    .filter((l) => l.workspaceId === id)
-    .sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime())
-    .slice(0, 10);
+  const [wsDepartments, wsAgents, wsTasks, wsProjects, wsLogs] =
+    await Promise.all([
+      prisma.department.findMany({
+        where: { workspaceId: id },
+        include: {
+          _count: { select: { agents: true, tasks: true } },
+        },
+      }),
+      prisma.agent.findMany({
+        where: { workspaceId: id },
+        include: {
+          assignedTasks: {
+            where: { status: "RUNNING" },
+            take: 1,
+            select: { title: true },
+          },
+        },
+      }),
+      prisma.task.findMany({
+        where: { workspaceId: id },
+        orderBy: { updatedAt: "desc" },
+        include: {
+          assigneeAgent: { select: { name: true } },
+        },
+      }),
+      prisma.project.findMany({
+        where: { workspaceId: id },
+        include: {
+          tasks: { select: { status: true } },
+        },
+      }),
+      prisma.logEvent.findMany({
+        where: { workspaceId: id },
+        orderBy: { createdAt: "desc" },
+        take: 10,
+        include: { agent: { select: { name: true } } },
+      }),
+    ]);
 
   const activeTaskCount = wsTasks.filter(
-    (t) => t.status === TaskStatus.RUNNING || t.status === TaskStatus.QUEUED
-  ).length;
-  const completedTaskCount = wsTasks.filter(
-    (t) => t.status === TaskStatus.COMPLETED
+    (t) => t.status === "RUNNING" || t.status === "QUEUED"
   ).length;
   const activeProjectCount = wsProjects.filter(
-    (p) => p.status === ProjectStatus.ACTIVE
+    (p) => p.status === "ACTIVE"
   ).length;
   const onlineAgentCount = wsAgents.filter(
-    (a) => a.status === AgentStatus.ONLINE || a.status === AgentStatus.BUSY
+    (a) => a.status === "ONLINE" || a.status === "BUSY"
   ).length;
 
-  const recentTasks = wsTasks
-    .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())
-    .slice(0, 8);
+  const recentTasks = wsTasks.slice(0, 8);
 
   const statCards = [
     {
@@ -188,7 +203,6 @@ export default async function WorkspaceDetailPage({
 
         {/* ── Overview Tab ───────────────────────────────────────────── */}
         <TabsContent value="overview" className="mt-6 space-y-6">
-          {/* Stats */}
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
             {statCards.map((stat) => (
               <Card key={stat.label}>
@@ -215,7 +229,6 @@ export default async function WorkspaceDetailPage({
           </div>
 
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-            {/* Recent Tasks */}
             <Card className="lg:col-span-2">
               <CardHeader>
                 <CardTitle>Recent Tasks</CardTitle>
@@ -234,40 +247,34 @@ export default async function WorkspaceDetailPage({
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {recentTasks.map((task) => {
-                      const agent = agents.find(
-                        (a) => a.id === task.agentId
-                      );
-                      return (
-                        <TableRow key={task.id}>
-                          <TableCell className="max-w-[240px] truncate font-medium">
-                            {task.title}
-                          </TableCell>
-                          <TableCell className="text-muted-foreground">
-                            {agent?.name ?? "—"}
-                          </TableCell>
-                          <TableCell>
-                            <Badge
-                              className={cn(
-                                "text-xs",
-                                getStatusColor(task.status)
-                              )}
-                            >
-                              {task.status.replace("_", " ")}
-                            </Badge>
-                          </TableCell>
-                          <TableCell className="text-muted-foreground">
-                            {formatRelativeTime(task.updatedAt)}
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })}
+                    {recentTasks.map((task) => (
+                      <TableRow key={task.id}>
+                        <TableCell className="max-w-[240px] truncate font-medium">
+                          {task.title}
+                        </TableCell>
+                        <TableCell className="text-muted-foreground">
+                          {task.assigneeAgent?.name ?? "—"}
+                        </TableCell>
+                        <TableCell>
+                          <Badge
+                            className={cn(
+                              "text-xs",
+                              getStatusColor(task.status)
+                            )}
+                          >
+                            {task.status.replace("_", " ")}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-muted-foreground">
+                          {formatRelativeTime(task.updatedAt)}
+                        </TableCell>
+                      </TableRow>
+                    ))}
                   </TableBody>
                 </Table>
               </CardContent>
             </Card>
 
-            {/* Activity */}
             <Card>
               <CardHeader>
                 <CardTitle>Recent Activity</CardTitle>
@@ -279,27 +286,22 @@ export default async function WorkspaceDetailPage({
                       No recent activity
                     </p>
                   )}
-                  {wsLogs.map((log) => {
-                    const agent = agents.find(
-                      (a) => a.id === log.agentId
-                    );
-                    return (
-                      <div key={log.id} className="flex gap-3">
-                        <div className="mt-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-muted">
-                          <Activity className="h-3 w-3 text-muted-foreground" />
-                        </div>
-                        <div className="min-w-0">
-                          <p className="text-sm leading-snug line-clamp-2">
-                            {log.message}
-                          </p>
-                          <p className="mt-0.5 text-xs text-muted-foreground">
-                            {agent?.name} ·{" "}
-                            {formatRelativeTime(log.timestamp)}
-                          </p>
-                        </div>
+                  {wsLogs.map((log) => (
+                    <div key={log.id} className="flex gap-3">
+                      <div className="mt-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-muted">
+                        <Activity className="h-3 w-3 text-muted-foreground" />
                       </div>
-                    );
-                  })}
+                      <div className="min-w-0">
+                        <p className="text-sm leading-snug line-clamp-2">
+                          {log.message}
+                        </p>
+                        <p className="mt-0.5 text-xs text-muted-foreground">
+                          {log.agent?.name} ·{" "}
+                          {formatRelativeTime(log.createdAt)}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </CardContent>
             </Card>
@@ -309,37 +311,28 @@ export default async function WorkspaceDetailPage({
         {/* ── Departments Tab ────────────────────────────────────────── */}
         <TabsContent value="departments" className="mt-6">
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {wsDepartments.map((dept) => {
-              const deptAgents = wsAgents.filter(
-                (a) => a.departmentId === dept.id
-              );
-              const deptTasks = wsTasks.filter(
-                (t) =>
-                  deptAgents.some((a) => a.id === t.agentId)
-              );
-              return (
-                <Card key={dept.id}>
-                  <CardHeader>
-                    <CardTitle>{dept.name}</CardTitle>
-                    {dept.description && (
-                      <CardDescription>{dept.description}</CardDescription>
-                    )}
-                  </CardHeader>
-                  <CardContent>
-                    <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                      <div className="flex items-center gap-1.5">
-                        <Bot className="h-3.5 w-3.5" />
-                        <span>{deptAgents.length} agents</span>
-                      </div>
-                      <div className="flex items-center gap-1.5">
-                        <ListChecks className="h-3.5 w-3.5" />
-                        <span>{deptTasks.length} tasks</span>
-                      </div>
+            {wsDepartments.map((dept) => (
+              <Card key={dept.id}>
+                <CardHeader>
+                  <CardTitle>{dept.name}</CardTitle>
+                  {dept.description && (
+                    <CardDescription>{dept.description}</CardDescription>
+                  )}
+                </CardHeader>
+                <CardContent>
+                  <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                    <div className="flex items-center gap-1.5">
+                      <Bot className="h-3.5 w-3.5" />
+                      <span>{dept._count.agents} agents</span>
                     </div>
-                  </CardContent>
-                </Card>
-              );
-            })}
+                    <div className="flex items-center gap-1.5">
+                      <ListChecks className="h-3.5 w-3.5" />
+                      <span>{dept._count.tasks} tasks</span>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
           </div>
         </TabsContent>
 
@@ -347,11 +340,7 @@ export default async function WorkspaceDetailPage({
         <TabsContent value="agents" className="mt-6">
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {wsAgents.map((agent) => {
-              const currentTask = tasks.find(
-                (t) =>
-                  t.agentId === agent.id &&
-                  t.status === TaskStatus.RUNNING
-              );
+              const currentTask = agent.assignedTasks[0];
               return (
                 <Link
                   key={agent.id}
@@ -418,52 +407,42 @@ export default async function WorkspaceDetailPage({
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {wsTasks
-                    .sort(
-                      (a, b) =>
-                        b.updatedAt.getTime() - a.updatedAt.getTime()
-                    )
-                    .map((task) => {
-                      const agent = agents.find(
-                        (a) => a.id === task.agentId
-                      );
-                      return (
-                        <TableRow key={task.id}>
-                          <TableCell className="max-w-[280px] truncate font-medium">
-                            {task.title}
-                          </TableCell>
-                          <TableCell className="text-muted-foreground">
-                            {agent?.name ?? "—"}
-                          </TableCell>
-                          <TableCell>
-                            <Badge
-                              variant="outline"
-                              className="text-xs"
-                            >
-                              {task.priority}
-                            </Badge>
-                          </TableCell>
-                          <TableCell>
-                            <Badge
-                              className={cn(
-                                "text-xs",
-                                getStatusColor(task.status)
-                              )}
-                            >
-                              {task.status.replace("_", " ")}
-                            </Badge>
-                          </TableCell>
-                          <TableCell className="text-muted-foreground">
-                            {task.dueDate
-                              ? formatRelativeTime(task.dueDate)
-                              : "—"}
-                          </TableCell>
-                          <TableCell className="text-muted-foreground">
-                            {formatRelativeTime(task.updatedAt)}
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })}
+                  {wsTasks.map((task) => (
+                    <TableRow key={task.id}>
+                      <TableCell className="max-w-[280px] truncate font-medium">
+                        {task.title}
+                      </TableCell>
+                      <TableCell className="text-muted-foreground">
+                        {task.assigneeAgent?.name ?? "—"}
+                      </TableCell>
+                      <TableCell>
+                        <Badge
+                          variant="outline"
+                          className="text-xs"
+                        >
+                          {task.priority}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        <Badge
+                          className={cn(
+                            "text-xs",
+                            getStatusColor(task.status)
+                          )}
+                        >
+                          {task.status.replace("_", " ")}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-muted-foreground">
+                        {task.dueDate
+                          ? formatRelativeTime(task.dueDate)
+                          : "—"}
+                      </TableCell>
+                      <TableCell className="text-muted-foreground">
+                        {formatRelativeTime(task.updatedAt)}
+                      </TableCell>
+                    </TableRow>
+                  ))}
                 </TableBody>
               </Table>
             </CardContent>
@@ -474,11 +453,8 @@ export default async function WorkspaceDetailPage({
         <TabsContent value="projects" className="mt-6">
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             {wsProjects.map((project) => {
-              const projectTasks = wsTasks.filter(
-                (t) => t.projectId === project.id
-              );
-              const completedCount = projectTasks.filter(
-                (t) => t.status === TaskStatus.COMPLETED
+              const completedCount = project.tasks.filter(
+                (t) => t.status === "COMPLETED"
               ).length;
               const statusColor: Record<string, string> = {
                 ACTIVE:
@@ -513,13 +489,8 @@ export default async function WorkspaceDetailPage({
                   <CardContent>
                     <div className="flex items-center gap-4 text-sm text-muted-foreground">
                       <span>
-                        {completedCount}/{projectTasks.length} tasks done
+                        {completedCount}/{project.tasks.length} tasks done
                       </span>
-                      {project.endDate && (
-                        <span>
-                          Due {formatRelativeTime(project.endDate)}
-                        </span>
-                      )}
                     </div>
                   </CardContent>
                 </Card>
@@ -557,7 +528,7 @@ export default async function WorkspaceDetailPage({
                 </span>
 
                 <span className="text-muted-foreground">Organization</span>
-                <span className="font-medium">{organization.name}</span>
+                <span className="font-medium">{workspace.organization.name}</span>
 
                 <span className="text-muted-foreground">Description</span>
                 <span>{workspace.description || "—"}</span>

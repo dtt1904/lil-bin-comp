@@ -1,6 +1,27 @@
 import { NextRequest, NextResponse } from "next/server";
 
-const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY || "lilbin-dev-key-2024";
+const isProduction = process.env.NODE_ENV === "production";
+
+function requireEnvInProduction(name: string, devFallback: string): string {
+  const value = process.env[name];
+  if (value) return value;
+
+  if (isProduction) {
+    throw new Error(
+      `Environment variable ${name} is required in production but not set.`
+    );
+  }
+
+  console.warn(
+    `[api-auth] ${name} not set — using dev fallback. Do NOT rely on this in production.`
+  );
+  return devFallback;
+}
+
+const INTERNAL_API_KEY = requireEnvInProduction(
+  "INTERNAL_API_KEY",
+  "lilbin-dev-key-2024"
+);
 
 export interface AuthContext {
   apiKey: string;
@@ -46,10 +67,6 @@ export function errorResponse(
   details?: unknown
 ): NextResponse {
   return NextResponse.json({ error: message, details }, { status });
-}
-
-export function parseBody<T>(body: unknown): T {
-  return body as T;
 }
 
 export function parseSearchParams(

@@ -1,10 +1,10 @@
 import { NextRequest } from "next/server";
+import { prisma } from "@/lib/db";
 import {
   authenticateRequest,
   jsonResponse,
   errorResponse,
 } from "@/lib/api-auth";
-import { store } from "@/lib/store";
 
 export async function GET(
   req: NextRequest,
@@ -14,10 +14,15 @@ export async function GET(
   if (!auth.ok) return auth.response;
 
   const { id } = await params;
-  const mod = store.findById(store.moduleInstallations, id);
-  if (!mod) return errorResponse("Module installation not found", 404);
 
-  return jsonResponse({ data: mod });
+  try {
+    const mod = await prisma.moduleInstallation.findUnique({ where: { id } });
+    if (!mod) return errorResponse("Module installation not found", 404);
+
+    return jsonResponse({ data: mod });
+  } catch (err) {
+    return errorResponse(`Failed to fetch module: ${err instanceof Error ? err.message : err}`, 500);
+  }
 }
 
 export async function PATCH(
@@ -28,18 +33,24 @@ export async function PATCH(
   if (!auth.ok) return auth.response;
 
   const { id } = await params;
-  const existing = store.findById(store.moduleInstallations, id);
-  if (!existing) return errorResponse("Module installation not found", 404);
 
-  const body = await req.json();
-  const updated = store.update(store.moduleInstallations, id, {
-    ...(body.status !== undefined && { status: body.status }),
-    ...(body.config !== undefined && { config: body.config }),
-    ...(body.version !== undefined && { version: body.version }),
-    updatedAt: new Date(),
-  });
+  try {
+    const existing = await prisma.moduleInstallation.findUnique({ where: { id } });
+    if (!existing) return errorResponse("Module installation not found", 404);
 
-  return jsonResponse({ data: updated });
+    const body = await req.json();
+    const updated = await prisma.moduleInstallation.update({
+      where: { id },
+      data: {
+        ...(body.status !== undefined && { status: body.status }),
+        ...(body.config !== undefined && { config: body.config }),
+      },
+    });
+
+    return jsonResponse({ data: updated });
+  } catch (err) {
+    return errorResponse(`Failed to update module: ${err instanceof Error ? err.message : err}`, 500);
+  }
 }
 
 export async function DELETE(
@@ -50,8 +61,14 @@ export async function DELETE(
   if (!auth.ok) return auth.response;
 
   const { id } = await params;
-  const removed = store.remove(store.moduleInstallations, id);
-  if (!removed) return errorResponse("Module installation not found", 404);
 
-  return jsonResponse({ success: true });
+  try {
+    const existing = await prisma.moduleInstallation.findUnique({ where: { id } });
+    if (!existing) return errorResponse("Module installation not found", 404);
+
+    await prisma.moduleInstallation.delete({ where: { id } });
+    return jsonResponse({ success: true });
+  } catch (err) {
+    return errorResponse(`Failed to delete module: ${err instanceof Error ? err.message : err}`, 500);
+  }
 }

@@ -1,34 +1,17 @@
-"use client";
-
-import { useParams } from "next/navigation";
+export const dynamic = "force-dynamic";
 import Link from "next/link";
+import { notFound } from "next/navigation";
 import {
   ChevronRight,
   RotateCcw,
   CheckCircle2,
   Archive,
-  Clock,
-  Cpu,
-  DollarSign,
   CalendarDays,
-  Tag,
+  DollarSign,
   GitBranch,
   AlertCircle,
 } from "lucide-react";
-import {
-  tasks,
-  agents,
-  users,
-  workspaces,
-  departments,
-  projects,
-  taskRuns,
-  taskDependencies,
-  comments,
-  logEvents,
-  artifacts,
-} from "@/lib/mock-data";
-import { TaskRunStatus } from "@/lib/types";
+import { prisma } from "@/lib/db";
 import {
   getStatusColor,
   getPriorityColor,
@@ -51,12 +34,6 @@ import {
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 
-const agentMap = new Map(agents.map((a) => [a.id, a]));
-const userMap = new Map(users.map((u) => [u.id, u]));
-const workspaceMap = new Map(workspaces.map((w) => [w.id, w]));
-const deptMap = new Map(departments.map((d) => [d.id, d]));
-const projectMap = new Map(projects.map((p) => [p.id, p]));
-
 const RUN_STATUS_COLOR: Record<string, string> = {
   STARTED: "bg-blue-500/15 text-blue-400 border-blue-500/20",
   RUNNING: "bg-blue-500/15 text-blue-400 border-blue-500/20",
@@ -73,7 +50,9 @@ const LOG_LEVEL_COLOR: Record<string, string> = {
   CRITICAL: "text-red-500 font-semibold",
 };
 
-function formatDuration(ms: number): string {
+function formatDuration(startedAt: Date, completedAt: Date | null): string {
+  if (!completedAt) return "In progress...";
+  const ms = completedAt.getTime() - startedAt.getTime();
   if (ms < 1000) return `${ms}ms`;
   const secs = Math.floor(ms / 1000);
   if (secs < 60) return `${secs}s`;
@@ -82,37 +61,53 @@ function formatDuration(ms: number): string {
   return `${mins}m ${remSecs}s`;
 }
 
-export default function TaskDetailPage() {
-  const { id } = useParams<{ id: string }>();
-  const task = tasks.find((t) => t.id === id);
+export default async function TaskDetailPage({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}) {
+  const { id } = await params;
+
+  const task = await prisma.task.findUnique({
+    where: { id },
+    include: {
+      assigneeAgent: true,
+      workspace: true,
+      project: true,
+      department: true,
+      createdByUser: true,
+      taskRuns: { include: { agent: true }, orderBy: { startedAt: "desc" } },
+      comments: {
+        include: { authorUser: true, authorAgent: true },
+        orderBy: { createdAt: "asc" },
+      },
+      approvals: { include: { requestedBy: true, reviewedBy: true } },
+      logEvents: { orderBy: { createdAt: "desc" }, take: 20 },
+      artifacts: { orderBy: { createdAt: "desc" } },
+      dependsOn: { include: { dependsOn: true } },
+      requiredByTasks: { include: { task: true } },
+    },
+  });
 
   if (!task) {
-    return (
-      <div className="flex h-[60vh] items-center justify-center">
-        <div className="text-center">
-          <h2 className="text-lg font-medium">Task not found</h2>
-          <p className="mt-1 text-sm text-muted-foreground">The task &quot;{id}&quot; does not exist.</p>
-          <Link href="/tasks" className="mt-4 inline-block text-sm text-blue-400 hover:underline">
-            Back to Tasks
-          </Link>
-        </div>
-      </div>
-    );
+    return notFound();
   }
 
-  const agent = task.agentId ? agentMap.get(task.agentId) : null;
-  const user = task.assignedToUserId ? userMap.get(task.assignedToUserId) : null;
-  const workspace = workspaceMap.get(task.workspaceId);
-  const project = task.projectId ? projectMap.get(task.projectId) : null;
-  const dept = agent?.departmentId ? deptMap.get(agent.departmentId) : null;
+  const agent = task.assigneeAgent;
+  const workspace = task.workspace;
+  const project = task.project;
+  const dept = task.department;
 
-  const runs = taskRuns.filter((r) => r.taskId === task.id);
-  const taskComments = comments.filter((c) => c.taskId === task.id);
-  const taskLogs = logEvents.filter((l) => l.taskId === task.id);
-  const taskArtifacts = artifacts.filter((a) => a.taskId === task.id);
-  const deps = taskDependencies.filter((d) => d.taskId === task.id || d.dependsOnTaskId === task.id);
+  const runs = task.taskRuns;
+  const taskComments = task.comments;
+  const taskLogs = task.logEvents;
+  const taskArtifacts = task.artifacts;
+  const deps = [
+    ...task.dependsOn.map((d) => ({ ...d, direction: "blocks_this" as const })),
+    ...task.requiredByTasks.map((d) => ({ ...d, direction: "blocked_by_this" as const })),
+  ];
 
-  const totalCost = runs.reduce((sum, r) => sum + (r.costUsd ?? 0), 0);
+  const totalCost = runs.reduce((sum, r) => sum + (r.cost ?? 0), 0);
   const isOverdue = task.dueDate && task.dueDate < new Date();
 
   return (
@@ -193,7 +188,7 @@ export default function TaskDetailPage() {
                     </TableHeader>
                     <TableBody>
                       {runs.map((run) => {
-                        const runAgent = agentMap.get(run.agentId);
+                        const runAgent = run.agent;
                         return (
                           <TableRow key={run.id}>
                             <TableCell>
@@ -221,13 +216,13 @@ export default function TaskDetailPage() {
                               )}
                             </TableCell>
                             <TableCell className="text-sm text-muted-foreground">
-                              {run.durationMs ? formatDuration(run.durationMs) : "In progress..."}
+                              {formatDuration(run.startedAt, run.completedAt)}
                             </TableCell>
                             <TableCell className="text-sm text-muted-foreground">
-                              {((run.inputTokens ?? 0) + (run.outputTokens ?? 0)).toLocaleString()}
+                              {(run.tokensUsed ?? 0).toLocaleString()}
                             </TableCell>
                             <TableCell className="text-sm text-muted-foreground">
-                              {formatCurrency(run.costUsd ?? 0)}
+                              {formatCurrency(run.cost ?? 0)}
                             </TableCell>
                             <TableCell className="text-sm text-muted-foreground">
                               {formatRelativeTime(run.startedAt)}
@@ -237,21 +232,23 @@ export default function TaskDetailPage() {
                       })}
                     </TableBody>
                   </Table>
-                  {runs.some((r) => r.resultSummary) && (
+                  {runs.some((r) => r.output || r.error) && (
                     <div className="mt-4 space-y-2">
                       {runs
-                        .filter((r) => r.resultSummary)
+                        .filter((r) => r.output)
                         .map((r) => (
                           <div
                             key={r.id}
                             className="rounded-md border border-border/50 bg-muted/30 p-3"
                           >
                             <p className="text-xs font-medium text-muted-foreground">Result Summary</p>
-                            <p className="mt-1 text-sm text-foreground/90">{r.resultSummary}</p>
+                            <p className="mt-1 text-sm text-foreground/90">
+                              {typeof r.output === "string" ? r.output : JSON.stringify(r.output)}
+                            </p>
                           </div>
                         ))}
                       {runs
-                        .filter((r) => r.errorMessage)
+                        .filter((r) => r.error)
                         .map((r) => (
                           <div
                             key={`${r.id}-err`}
@@ -261,7 +258,7 @@ export default function TaskDetailPage() {
                               <AlertCircle className="size-3.5 text-red-400" />
                               <p className="text-xs font-medium text-red-400">Error</p>
                             </div>
-                            <p className="mt-1 text-sm text-red-300/90">{r.errorMessage}</p>
+                            <p className="mt-1 text-sm text-red-300/90">{r.error}</p>
                           </div>
                         ))}
                     </div>
@@ -278,8 +275,8 @@ export default function TaskDetailPage() {
                 </CardHeader>
                 <CardContent className="space-y-4">
                   {taskComments.map((comment) => {
-                    const commentAgent = comment.agentId ? agentMap.get(comment.agentId) : null;
-                    const commentUser = comment.userId ? userMap.get(comment.userId) : null;
+                    const commentAgent = comment.authorAgent;
+                    const commentUser = comment.authorUser;
                     const author = commentAgent
                       ? { name: commentAgent.name, initial: commentAgent.name[0], type: "agent" as const }
                       : commentUser
@@ -329,30 +326,25 @@ export default function TaskDetailPage() {
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-3">
-                    {taskLogs.map((log) => {
-                      const logAgent = log.agentId ? agentMap.get(log.agentId) : null;
-                      return (
-                        <div key={log.id} className="flex items-start gap-3">
-                          <div className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full bg-muted">
-                            <span className={cn("size-1.5 rounded-full", LOG_LEVEL_COLOR[log.level]?.includes("red") ? "bg-red-400" : LOG_LEVEL_COLOR[log.level]?.includes("amber") ? "bg-amber-400" : "bg-blue-400")} />
-                          </div>
-                          <div className="flex-1">
-                            <div className="flex items-center gap-2">
-                              <Badge variant="outline" className={cn("h-4 px-1 text-[10px]", LOG_LEVEL_COLOR[log.level])}>
-                                {log.level}
-                              </Badge>
-                              {logAgent && (
-                                <span className="text-xs text-muted-foreground">{logAgent.name}</span>
-                              )}
-                              <span className="ml-auto text-xs text-muted-foreground">
-                                {formatRelativeTime(log.timestamp)}
-                              </span>
-                            </div>
-                            <p className="mt-1 text-sm text-muted-foreground">{log.message}</p>
-                          </div>
+                    {taskLogs.map((log) => (
+                      <div key={log.id} className="flex items-start gap-3">
+                        <div className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full bg-muted">
+                          <span className={cn("size-1.5 rounded-full", LOG_LEVEL_COLOR[log.level]?.includes("red") ? "bg-red-400" : LOG_LEVEL_COLOR[log.level]?.includes("amber") ? "bg-amber-400" : "bg-blue-400")} />
                         </div>
-                      );
-                    })}
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2">
+                            <Badge variant="outline" className={cn("h-4 px-1 text-[10px]", LOG_LEVEL_COLOR[log.level])}>
+                              {log.level}
+                            </Badge>
+                            <span className="text-xs text-muted-foreground">{log.source}</span>
+                            <span className="ml-auto text-xs text-muted-foreground">
+                              {formatRelativeTime(log.createdAt)}
+                            </span>
+                          </div>
+                          <p className="mt-1 text-sm text-muted-foreground">{log.message}</p>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </CardContent>
               </Card>
@@ -407,15 +399,6 @@ export default function TaskDetailPage() {
                         <p className="text-xs text-muted-foreground">{agent.model}</p>
                       </div>
                     </Link>
-                  ) : user ? (
-                    <div className="mt-1 flex items-center gap-2">
-                      <Avatar size="sm">
-                        <AvatarFallback className="bg-zinc-600 text-white text-[10px] font-bold">
-                          {user.name[0].toUpperCase()}
-                        </AvatarFallback>
-                      </Avatar>
-                      <p className="text-sm font-medium">{user.name}</p>
-                    </div>
                   ) : (
                     <p className="mt-1 text-sm text-muted-foreground">Unassigned</p>
                   )}
@@ -479,18 +462,18 @@ export default function TaskDetailPage() {
                 <Separator />
 
                 {/* Labels */}
-                {task.tags.length > 0 && (
+                {task.labels.length > 0 && (
                   <>
                     <div>
                       <p className="text-xs font-medium text-muted-foreground">Labels</p>
                       <div className="mt-1.5 flex flex-wrap gap-1">
-                        {task.tags.map((tag) => (
+                        {task.labels.map((label) => (
                           <Badge
-                            key={tag}
+                            key={label}
                             variant="secondary"
                             className="text-xs"
                           >
-                            {tag}
+                            {label}
                           </Badge>
                         ))}
                       </div>
@@ -533,17 +516,16 @@ export default function TaskDetailPage() {
                       <p className="mb-2 text-xs font-medium text-muted-foreground">Dependencies</p>
                       <div className="space-y-1.5">
                         {deps.map((dep) => {
-                          const isBlocking = dep.taskId === task.id;
-                          const linkedTaskId = isBlocking ? dep.dependsOnTaskId : dep.taskId;
-                          const linkedTask = tasks.find((t) => t.id === linkedTaskId);
+                          const isBlocking = dep.direction === "blocks_this";
+                          const linkedTask = isBlocking ? dep.dependsOn : dep.task;
                           return (
                             <div key={dep.id} className="flex items-center gap-2">
                               <GitBranch className="size-3.5 text-muted-foreground" />
                               <Link
-                                href={`/tasks/${linkedTaskId}`}
+                                href={`/tasks/${linkedTask.id}`}
                                 className="line-clamp-1 text-sm text-blue-400 hover:underline"
                               >
-                                {linkedTask?.title ?? linkedTaskId}
+                                {linkedTask.title}
                               </Link>
                               <Badge variant="secondary" className="h-4 px-1 text-[10px]">
                                 {isBlocking ? "blocks this" : "blocked by this"}

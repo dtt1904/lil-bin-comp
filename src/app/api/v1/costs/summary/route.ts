@@ -1,65 +1,78 @@
 import { NextRequest } from "next/server";
-import { authenticateRequest, jsonResponse } from "@/lib/api-auth";
-import { store } from "@/lib/store";
-import type { CostRecord } from "@/lib/types";
+import { prisma } from "@/lib/db";
+import { authenticateRequest, jsonResponse, errorResponse } from "@/lib/api-auth";
 
 export async function GET(req: NextRequest) {
   const auth = authenticateRequest(req);
   if (!auth.ok) return auth.response;
 
-  const records = store.costRecords;
-  const now = new Date();
+  try {
+    const organizationId = auth.ctx.organizationId;
+    const now = new Date();
 
-  const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const dayOfWeek = now.getDay();
-  const startOfWeek = new Date(startOfDay);
-  startOfWeek.setDate(startOfWeek.getDate() - dayOfWeek);
-  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const dayOfWeek = now.getDay();
+    const startOfWeek = new Date(startOfDay);
+    startOfWeek.setDate(startOfWeek.getDate() - dayOfWeek);
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
 
-  let totalCost = 0;
-  let totalTokens = 0;
-  let costToday = 0;
-  let costThisWeek = 0;
-  let costThisMonth = 0;
+    const baseWhere = { organizationId };
 
-  const agentMap = new Map<string, number>();
-  const workspaceMap = new Map<string, number>();
-  const modelMap = new Map<string, number>();
+    const [
+      totals,
+      todayTotals,
+      weekTotals,
+      monthTotals,
+      byAgent,
+      byWorkspace,
+      byModel,
+    ] = await Promise.all([
+      prisma.costRecord.aggregate({
+        _sum: { cost: true, tokensInput: true, tokensOutput: true },
+        where: baseWhere,
+      }),
+      prisma.costRecord.aggregate({
+        _sum: { cost: true },
+        where: { ...baseWhere, createdAt: { gte: startOfDay } },
+      }),
+      prisma.costRecord.aggregate({
+        _sum: { cost: true },
+        where: { ...baseWhere, createdAt: { gte: startOfWeek } },
+      }),
+      prisma.costRecord.aggregate({
+        _sum: { cost: true },
+        where: { ...baseWhere, createdAt: { gte: startOfMonth } },
+      }),
+      prisma.costRecord.groupBy({
+        by: ["agentId"],
+        _sum: { cost: true },
+        where: baseWhere,
+      }),
+      prisma.costRecord.groupBy({
+        by: ["workspaceId"],
+        _sum: { cost: true },
+        where: baseWhere,
+      }),
+      prisma.costRecord.groupBy({
+        by: ["model"],
+        _sum: { cost: true },
+        where: baseWhere,
+      }),
+    ]);
 
-  for (const r of records) {
-    totalCost += r.costUsd;
-    totalTokens += r.inputTokens + r.outputTokens;
-
-    const ts = new Date(r.recordedAt).getTime();
-    if (ts >= startOfDay.getTime()) costToday += r.costUsd;
-    if (ts >= startOfWeek.getTime()) costThisWeek += r.costUsd;
-    if (ts >= startOfMonth.getTime()) costThisMonth += r.costUsd;
-
-    if (r.agentId) {
-      agentMap.set(r.agentId, (agentMap.get(r.agentId) ?? 0) + r.costUsd);
-    }
-    if (r.workspaceId) {
-      workspaceMap.set(
-        r.workspaceId,
-        (workspaceMap.get(r.workspaceId) ?? 0) + r.costUsd,
-      );
-    }
-    modelMap.set(r.model, (modelMap.get(r.model) ?? 0) + r.costUsd);
+    return jsonResponse({
+      data: {
+        totalCost: totals._sum.cost ?? 0,
+        totalTokens: (totals._sum.tokensInput ?? 0) + (totals._sum.tokensOutput ?? 0),
+        costByAgent: byAgent.map((g) => ({ id: g.agentId ?? "unassigned", cost: g._sum.cost ?? 0 })),
+        costByWorkspace: byWorkspace.map((g) => ({ id: g.workspaceId ?? "unassigned", cost: g._sum.cost ?? 0 })),
+        costByModel: byModel.map((g) => ({ id: g.model, cost: g._sum.cost ?? 0 })),
+        costToday: todayTotals._sum.cost ?? 0,
+        costThisWeek: weekTotals._sum.cost ?? 0,
+        costThisMonth: monthTotals._sum.cost ?? 0,
+      },
+    });
+  } catch (err) {
+    return errorResponse(`Failed to fetch cost summary: ${err instanceof Error ? err.message : err}`, 500);
   }
-
-  const toArray = (map: Map<string, number>) =>
-    Array.from(map.entries()).map(([id, cost]) => ({ id, cost }));
-
-  return jsonResponse({
-    data: {
-      totalCost,
-      totalTokens,
-      costByAgent: toArray(agentMap),
-      costByWorkspace: toArray(workspaceMap),
-      costByModel: toArray(modelMap),
-      costToday,
-      costThisWeek,
-      costThisMonth,
-    },
-  });
 }

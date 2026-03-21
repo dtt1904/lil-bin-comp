@@ -1,12 +1,11 @@
 import { NextRequest } from "next/server";
-import { store, generateId } from "@/lib/store";
+import { prisma } from "@/lib/db";
 import {
   authenticateRequest,
   jsonResponse,
   errorResponse,
 } from "@/lib/api-auth";
-import { PostDraftStatus, LogLevel } from "@/lib/types";
-import type { PublishedPost } from "@/lib/types";
+import { PostDraftStatus, LogLevel } from "@/generated/prisma/enums";
 
 export async function GET(
   req: NextRequest,
@@ -16,21 +15,23 @@ export async function GET(
   if (!auth.ok) return auth.response;
 
   const { id } = await params;
-  const draft = store.findById(store.postDrafts, id);
-  if (!draft) return errorResponse("Draft not found", 404);
 
-  const listing = draft.listingId
-    ? store.findById(store.listings, draft.listingId)
-    : null;
+  try {
+    const draft = await prisma.postDraft.findUnique({
+      where: { id },
+      include: {
+        listing: true,
+        publishedPosts: true,
+      },
+    });
+    if (!draft) return errorResponse("Draft not found", 404);
 
-  const publishedPosts = store.filter(
-    store.publishedPosts,
-    (p) => p.postDraftId === id
-  );
-
-  return jsonResponse({
-    data: { ...draft, listing: listing ?? null, publishedPosts },
-  });
+    return jsonResponse({ data: draft });
+  } catch (err) {
+    return errorResponse("Failed to fetch draft", 500, {
+      message: (err as Error).message,
+    });
+  }
 }
 
 export async function PATCH(
@@ -41,8 +42,6 @@ export async function PATCH(
   if (!auth.ok) return auth.response;
 
   const { id } = await params;
-  const existing = store.findById(store.postDrafts, id);
-  if (!existing) return errorResponse("Draft not found", 404);
 
   let body: Record<string, unknown>;
   try {
@@ -51,58 +50,71 @@ export async function PATCH(
     return errorResponse("Invalid JSON body", 400);
   }
 
-  const now = new Date();
-  const updates: Record<string, unknown> = { updatedAt: now };
-  const allowedFields = [
-    "caption", "platform", "status", "mediaUrls", "hashtags",
-    "scheduledAt", "reviewedByUserId",
-  ];
-  for (const field of allowedFields) {
-    if (body[field] !== undefined) {
-      updates[field] = field === "scheduledAt"
-        ? new Date(body[field] as string)
-        : body[field];
+  try {
+    const existing = await prisma.postDraft.findUnique({ where: { id } });
+    if (!existing) return errorResponse("Draft not found", 404);
+
+    const data: Record<string, unknown> = {};
+    if (body.caption !== undefined || body.content !== undefined) {
+      data.content = (body.content as string) ?? (body.caption as string);
     }
+    if (body.title !== undefined) data.title = body.title;
+    if (body.platform !== undefined) data.platform = body.platform;
+    if (body.status !== undefined) data.status = body.status;
+    if (body.scheduledAt !== undefined) {
+      data.scheduledAt = new Date(body.scheduledAt as string);
+    }
+    if (body.reviewedByUserId !== undefined) {
+      data.reviewedByUserId = body.reviewedByUserId;
+    }
+
+    const oldStatus = existing.status;
+    const updated = await prisma.postDraft.update({ where: { id }, data });
+
+    if (body.status && body.status !== oldStatus) {
+      if (body.status === PostDraftStatus.APPROVED) {
+        await prisma.logEvent.create({
+          data: {
+            organizationId: auth.ctx.organizationId,
+            workspaceId: existing.workspaceId,
+            level: LogLevel.INFO,
+            source: "api",
+            message: `Draft approved`,
+            metadata: { draftId: id },
+          },
+        });
+      }
+
+      if (body.status === PostDraftStatus.PUBLISHED) {
+        const pub = await prisma.publishedPost.create({
+          data: {
+            postDraftId: id,
+            platform: updated.platform,
+            publishedAt: new Date(),
+            organizationId: existing.organizationId,
+            workspaceId: existing.workspaceId,
+          },
+        });
+
+        await prisma.logEvent.create({
+          data: {
+            organizationId: auth.ctx.organizationId,
+            workspaceId: existing.workspaceId,
+            level: LogLevel.INFO,
+            source: "api",
+            message: `Draft published, post record created`,
+            metadata: { draftId: id, publishedPostId: pub.id },
+          },
+        });
+      }
+    }
+
+    return jsonResponse({ data: updated });
+  } catch (err) {
+    return errorResponse("Failed to update draft", 500, {
+      message: (err as Error).message,
+    });
   }
-
-  const oldStatus = existing.status;
-  const updated = store.update(store.postDrafts, id, updates);
-
-  if (body.status && body.status !== oldStatus) {
-    if (body.status === PostDraftStatus.APPROVED) {
-      store.insert(store.logEvents, {
-        id: generateId("log"),
-        organizationId: auth.ctx.organizationId,
-        workspaceId: existing.workspaceId,
-        level: LogLevel.INFO,
-        message: `Draft approved`,
-        metadata: { draftId: id },
-        timestamp: now,
-      });
-    }
-
-    if (body.status === PostDraftStatus.PUBLISHED) {
-      const pub: PublishedPost = {
-        id: generateId("pub"),
-        postDraftId: id,
-        platform: updated!.platform,
-        publishedAt: now,
-      };
-      store.insert(store.publishedPosts, pub);
-
-      store.insert(store.logEvents, {
-        id: generateId("log"),
-        organizationId: auth.ctx.organizationId,
-        workspaceId: existing.workspaceId,
-        level: LogLevel.INFO,
-        message: `Draft published, post record created`,
-        metadata: { draftId: id, publishedPostId: pub.id },
-        timestamp: now,
-      });
-    }
-  }
-
-  return jsonResponse({ data: updated });
 }
 
 export async function DELETE(
@@ -113,9 +125,16 @@ export async function DELETE(
   if (!auth.ok) return auth.response;
 
   const { id } = await params;
-  const existing = store.findById(store.postDrafts, id);
-  if (!existing) return errorResponse("Draft not found", 404);
 
-  store.remove(store.postDrafts, id);
-  return jsonResponse({ success: true });
+  try {
+    const existing = await prisma.postDraft.findUnique({ where: { id } });
+    if (!existing) return errorResponse("Draft not found", 404);
+
+    await prisma.postDraft.delete({ where: { id } });
+    return jsonResponse({ success: true });
+  } catch (err) {
+    return errorResponse("Failed to delete draft", 500, {
+      message: (err as Error).message,
+    });
+  }
 }

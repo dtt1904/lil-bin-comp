@@ -2,32 +2,38 @@
 
 import Link from "next/link";
 import { Calendar, Clock } from "lucide-react";
-import { type Task } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
-  getStatusColor,
   getPriorityColor,
   getAgentAvatarColor,
-  formatRelativeTime,
 } from "@/lib/helpers";
-import { agents, workspaces, users } from "@/lib/mock-data";
 import { cn } from "@/lib/utils";
 
-const agentMap = new Map(agents.map((a) => [a.id, a]));
-const userMap = new Map(users.map((u) => [u.id, u]));
-const workspaceMap = new Map(workspaces.map((w) => [w.id, w]));
+export interface SerializedTask {
+  id: string;
+  title: string;
+  description: string | null;
+  status: string;
+  priority: string;
+  workspaceId: string | null;
+  projectId: string | null;
+  assigneeAgentId: string | null;
+  dueDate: string | null;
+  labels: string[];
+  createdAt: string;
+  updatedAt: string;
+  assigneeAgent: { id: string; name: string; slug: string } | null;
+  workspace: { id: string; name: string } | null;
+  project: { id: string; name: string } | null;
+}
 
-export function TaskCard({ task }: { task: Task }) {
-  const agent = task.agentId ? agentMap.get(task.agentId) : null;
-  const user = task.assignedToUserId ? userMap.get(task.assignedToUserId) : null;
-  const assignee = agent
-    ? { name: agent.name, initial: agent.name[0] }
-    : user
-      ? { name: user.name, initial: user.name[0] }
-      : null;
-  const workspace = workspaceMap.get(task.workspaceId);
-  const isOverdue = task.dueDate && task.dueDate < new Date();
+export function TaskCard({ task }: { task: SerializedTask }) {
+  const assignee = task.assigneeAgent
+    ? { name: task.assigneeAgent.name, initial: task.assigneeAgent.name[0] }
+    : null;
+  const dueDate = task.dueDate ? new Date(task.dueDate) : null;
+  const isOverdue = dueDate && dueDate < new Date();
 
   return (
     <Link href={`/tasks/${task.id}`} className="block">
@@ -42,8 +48,8 @@ export function TaskCard({ task }: { task: Task }) {
           <Badge variant="outline" className={cn("text-[10px]", getPriorityColor(task.priority))}>
             {task.priority}
           </Badge>
-          {workspace && (
-            <span className="text-[10px] text-muted-foreground">{workspace.name}</span>
+          {task.workspace && (
+            <span className="text-[10px] text-muted-foreground">{task.workspace.name}</span>
           )}
         </div>
 
@@ -63,7 +69,7 @@ export function TaskCard({ task }: { task: Task }) {
             <span className="text-xs text-muted-foreground">Unassigned</span>
           )}
 
-          {task.dueDate ? (
+          {dueDate ? (
             <div
               className={cn(
                 "flex items-center gap-1 text-[10px]",
@@ -71,7 +77,7 @@ export function TaskCard({ task }: { task: Task }) {
               )}
             >
               {isOverdue ? <Clock className="size-3" /> : <Calendar className="size-3" />}
-              {task.dueDate.toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+              {dueDate.toLocaleDateString("en-US", { month: "short", day: "numeric" })}
             </div>
           ) : null}
         </div>

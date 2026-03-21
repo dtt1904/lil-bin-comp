@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { store, generateId } from "@/lib/store";
+import { prisma } from "@/lib/db";
 import {
   authenticateRequest,
   jsonResponse,
@@ -14,11 +14,20 @@ export async function GET(
   if (!auth.ok) return auth.response;
 
   const { id } = await params;
-  const task = store.findById(store.tasks, id);
-  if (!task) return errorResponse("Task not found", 404);
 
-  const comments = store.filter(store.comments, (c) => c.taskId === id);
-  return jsonResponse({ data: comments, meta: { total: comments.length } });
+  try {
+    const task = await prisma.task.findUnique({ where: { id } });
+    if (!task) return errorResponse("Task not found", 404);
+
+    const comments = await prisma.comment.findMany({
+      where: { taskId: id },
+      orderBy: { createdAt: "asc" },
+    });
+
+    return jsonResponse({ data: comments, meta: { total: comments.length } });
+  } catch (err) {
+    return errorResponse(`Failed to fetch comments: ${err instanceof Error ? err.message : err}`, 500);
+  }
 }
 
 export async function POST(
@@ -29,34 +38,37 @@ export async function POST(
   if (!auth.ok) return auth.response;
 
   const { id } = await params;
-  const task = store.findById(store.tasks, id);
-  if (!task) return errorResponse("Task not found", 404);
 
-  const body = await req.json();
+  try {
+    const task = await prisma.task.findUnique({ where: { id } });
+    if (!task) return errorResponse("Task not found", 404);
 
-  if (!body.content) {
-    return errorResponse("content is required");
+    const body = await req.json();
+
+    if (!body.content) {
+      return errorResponse("content is required");
+    }
+
+    if (body.userId) {
+      const user = await prisma.user.findUnique({ where: { id: body.userId } });
+      if (!user) return errorResponse("User not found", 404);
+    }
+    if (body.agentId) {
+      const agent = await prisma.agent.findUnique({ where: { id: body.agentId } });
+      if (!agent) return errorResponse("Agent not found", 404);
+    }
+
+    const comment = await prisma.comment.create({
+      data: {
+        taskId: id,
+        authorUserId: body.userId ?? undefined,
+        authorAgentId: body.agentId ?? undefined,
+        content: body.content,
+      },
+    });
+
+    return jsonResponse({ data: comment }, 201);
+  } catch (err) {
+    return errorResponse(`Failed to create comment: ${err instanceof Error ? err.message : err}`, 500);
   }
-
-  if (body.userId) {
-    const user = store.findById(store.users, body.userId);
-    if (!user) return errorResponse("User not found", 404);
-  }
-  if (body.agentId) {
-    const agent = store.findById(store.agents, body.agentId);
-    if (!agent) return errorResponse("Agent not found", 404);
-  }
-
-  const now = new Date();
-  const comment = store.insert(store.comments, {
-    id: generateId("comment"),
-    taskId: id,
-    userId: body.userId ?? undefined,
-    agentId: body.agentId ?? undefined,
-    content: body.content,
-    createdAt: now,
-    updatedAt: now,
-  });
-
-  return jsonResponse({ data: comment }, 201);
 }

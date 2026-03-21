@@ -1,7 +1,6 @@
-"use client";
-
-import { useParams } from "next/navigation";
+export const dynamic = "force-dynamic";
 import Link from "next/link";
+import { notFound } from "next/navigation";
 import {
   ChevronRight,
   Sparkles,
@@ -12,15 +11,7 @@ import {
   Video,
   Camera,
 } from "lucide-react";
-import {
-  listings,
-  agents,
-  users,
-  workspaces,
-  mediaAssets,
-  postDrafts,
-  publishedPosts,
-} from "@/lib/mock-data";
+import { prisma } from "@/lib/db";
 import {
   formatCurrency,
   formatRelativeTime,
@@ -32,10 +23,6 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Separator } from "@/components/ui/separator";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-
-const agentMap = new Map(agents.map((a) => [a.id, a]));
-const userMap = new Map(users.map((u) => [u.id, u]));
-const workspaceMap = new Map(workspaces.map((w) => [w.id, w]));
 
 const LISTING_STATUS_COLOR: Record<string, string> = {
   NEW: "bg-blue-500/15 text-blue-400 border-blue-500/20",
@@ -84,38 +71,36 @@ const MEDIA_TYPE_ICON: Record<string, typeof Camera> = {
   OTHER: ImageIcon,
 };
 
-export default function ListingDetailPage() {
-  const { id } = useParams<{ id: string }>();
-  const listing = listings.find((l) => l.id === id);
+export default async function ListingDetailPage({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}) {
+  const { id } = await params;
+
+  const listing = await prisma.listing.findUnique({
+    where: { id },
+    include: {
+      mediaAssets: { orderBy: { sortOrder: "asc" } },
+      postDrafts: {
+        include: {
+          publishedPosts: true,
+          createdByAgent: { select: { id: true, name: true } },
+        },
+        orderBy: { createdAt: "desc" },
+      },
+      assignedAgent: true,
+      workspace: true,
+    },
+  });
 
   if (!listing) {
-    return (
-      <div className="flex h-[60vh] items-center justify-center">
-        <div className="text-center">
-          <h2 className="text-lg font-medium">Listing not found</h2>
-          <p className="mt-1 text-sm text-muted-foreground">
-            The listing &quot;{id}&quot; does not exist.
-          </p>
-          <Link
-            href="/modules/listings"
-            className="mt-4 inline-block text-sm text-blue-400 hover:underline"
-          >
-            Back to Listings
-          </Link>
-        </div>
-      </div>
-    );
+    notFound();
   }
 
-  const agent = listing.agentId ? agentMap.get(listing.agentId) : null;
-  const assignedUser = listing.assignedToUserId
-    ? userMap.get(listing.assignedToUserId)
-    : null;
-  const workspace = workspaceMap.get(listing.workspaceId);
-
-  const listingMedia = mediaAssets
-    .filter((m) => m.listingId === listing.id)
-    .sort((a, b) => a.sortOrder - b.sortOrder);
+  const agent = listing.assignedAgent;
+  const workspace = listing.workspace;
+  const listingMedia = listing.mediaAssets;
 
   const mediaByType = listingMedia.reduce(
     (acc, m) => {
@@ -126,13 +111,21 @@ export default function ListingDetailPage() {
     {} as Record<string, typeof listingMedia>
   );
 
-  const listingDrafts = postDrafts.filter(
-    (d) => d.listingId === listing.id
+  const publishedDraftIds = new Set(
+    listing.postDrafts
+      .flatMap((d) => d.publishedPosts)
+      .map((p) => p.postDraftId)
   );
 
-  const publishedDraftIds = new Set(publishedPosts.map((p) => p.postDraftId));
-  const listingPublished = publishedPosts.filter((p) =>
-    listingDrafts.some((d) => d.id === p.postDraftId)
+  const unpublishedDrafts = listing.postDrafts.filter(
+    (d) => !publishedDraftIds.has(d.id)
+  );
+
+  const allPublishedPosts = listing.postDrafts.flatMap((d) =>
+    d.publishedPosts.map((p) => ({
+      ...p,
+      draft: d,
+    }))
   );
 
   return (
@@ -175,7 +168,7 @@ export default function ListingDetailPage() {
               )}
               <span>&middot;</span>
               <span>
-                {listing.city}, {listing.state} {listing.zip}
+                {listing.city}, {listing.state} {listing.zipCode}
               </span>
             </div>
           </div>
@@ -209,7 +202,7 @@ export default function ListingDetailPage() {
                       State / Zip
                     </p>
                     <p className="mt-1 text-sm">
-                      {listing.state} {listing.zip}
+                      {listing.state} {listing.zipCode}
                     </p>
                   </div>
                   <div>
@@ -244,7 +237,9 @@ export default function ListingDetailPage() {
                     <p className="text-xs font-medium text-muted-foreground">
                       Type
                     </p>
-                    <p className="mt-1 text-sm">Residential</p>
+                    <p className="mt-1 text-sm">
+                      {listing.propertyType ?? "Residential"}
+                    </p>
                   </div>
                 </div>
                 {listing.description && (
@@ -254,16 +249,6 @@ export default function ListingDetailPage() {
                     </p>
                     <p className="text-sm leading-relaxed text-foreground/90">
                       {listing.description}
-                    </p>
-                  </div>
-                )}
-                {listing.notes && (
-                  <div className="mt-3 rounded-md border border-border/50 bg-muted/30 p-3">
-                    <p className="text-xs font-medium text-muted-foreground mb-1">
-                      Notes
-                    </p>
-                    <p className="text-sm leading-relaxed text-muted-foreground">
-                      {listing.notes}
                     </p>
                   </div>
                 )}
@@ -305,7 +290,7 @@ export default function ListingDetailPage() {
                                   {type.replace(/_/g, " ")}
                                 </span>
                                 <span className="mt-1 text-[10px] text-white/60 truncate max-w-full px-1">
-                                  {asset.fileName}
+                                  {asset.name}
                                 </span>
                               </div>
                             ))}
@@ -319,72 +304,69 @@ export default function ListingDetailPage() {
             </Card>
 
             {/* Content Drafts */}
-            {listingDrafts.length > 0 && (
+            {unpublishedDrafts.length > 0 && (
               <Card>
                 <CardHeader>
                   <CardTitle className="text-base">
-                    Content Drafts ({listingDrafts.length})
+                    Content Drafts ({unpublishedDrafts.length})
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-3">
-                  {listingDrafts
-                    .filter((d) => !publishedDraftIds.has(d.id))
-                    .map((draft) => {
-                      const draftAgent = draft.createdByAgentId
-                        ? agentMap.get(draft.createdByAgentId)
-                        : null;
-                      return (
-                        <div
-                          key={draft.id}
-                          className="rounded-md border border-border/50 bg-muted/30 p-3"
-                        >
-                          <div className="flex items-center gap-2 mb-2">
-                            <Badge
-                              variant="outline"
-                              className={PLATFORM_COLOR[draft.platform] ?? ""}
-                            >
-                              {draft.platform.replace(/_/g, " ")}
-                            </Badge>
-                            <Badge
-                              variant="outline"
-                              className={
-                                DRAFT_STATUS_COLOR[draft.status] ?? ""
-                              }
-                            >
-                              {draft.status}
-                            </Badge>
-                            <span className="ml-auto text-xs text-muted-foreground">
-                              {formatRelativeTime(draft.createdAt)}
-                            </span>
-                          </div>
-                          <p className="text-sm text-foreground/90 line-clamp-2">
-                            {draft.caption}
-                          </p>
-                          {draftAgent && (
-                            <p className="mt-2 text-xs text-muted-foreground">
-                              Created by {draftAgent.name}
-                            </p>
-                          )}
+                  {unpublishedDrafts.map((draft) => {
+                    const draftAgent = draft.createdByAgent;
+                    return (
+                      <div
+                        key={draft.id}
+                        className="rounded-md border border-border/50 bg-muted/30 p-3"
+                      >
+                        <div className="flex items-center gap-2 mb-2">
+                          <Badge
+                            variant="outline"
+                            className={PLATFORM_COLOR[draft.platform] ?? ""}
+                          >
+                            {draft.platform.replace(/_/g, " ")}
+                          </Badge>
+                          <Badge
+                            variant="outline"
+                            className={
+                              DRAFT_STATUS_COLOR[draft.status] ?? ""
+                            }
+                          >
+                            {draft.status}
+                          </Badge>
+                          <span className="ml-auto text-xs text-muted-foreground">
+                            {formatRelativeTime(draft.createdAt)}
+                          </span>
                         </div>
-                      );
-                    })}
+                        <p className="text-sm text-foreground/90 line-clamp-2">
+                          {draft.content}
+                        </p>
+                        {draftAgent && (
+                          <p className="mt-2 text-xs text-muted-foreground">
+                            Created by {draftAgent.name}
+                          </p>
+                        )}
+                      </div>
+                    );
+                  })}
                 </CardContent>
               </Card>
             )}
 
             {/* Published Posts */}
-            {listingPublished.length > 0 && (
+            {allPublishedPosts.length > 0 && (
               <Card>
                 <CardHeader>
                   <CardTitle className="text-base">
-                    Published Posts ({listingPublished.length})
+                    Published Posts ({allPublishedPosts.length})
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-3">
-                  {listingPublished.map((post) => {
-                    const draft = postDrafts.find(
-                      (d) => d.id === post.postDraftId
-                    );
+                  {allPublishedPosts.map((post) => {
+                    const metrics = post.metrics as Record<
+                      string,
+                      number
+                    > | null;
                     return (
                       <div
                         key={post.id}
@@ -407,20 +389,24 @@ export default function ListingDetailPage() {
                             {formatRelativeTime(post.publishedAt)}
                           </span>
                         </div>
-                        {draft && (
-                          <p className="text-sm text-foreground/90 line-clamp-2">
-                            {draft.caption}
-                          </p>
-                        )}
+                        <p className="text-sm text-foreground/90 line-clamp-2">
+                          {post.draft.content}
+                        </p>
                         <div className="mt-2 flex items-center gap-4 text-xs text-muted-foreground">
-                          {post.impressions !== undefined && (
+                          {metrics?.impressions !== undefined && (
                             <span>
-                              {post.impressions.toLocaleString()} impressions
+                              {Number(
+                                metrics.impressions
+                              ).toLocaleString()}{" "}
+                              impressions
                             </span>
                           )}
-                          {post.engagements !== undefined && (
+                          {metrics?.engagements !== undefined && (
                             <span>
-                              {post.engagements.toLocaleString()} engagements
+                              {Number(
+                                metrics.engagements
+                              ).toLocaleString()}{" "}
+                              engagements
                             </span>
                           )}
                           {post.url && (
@@ -469,28 +455,7 @@ export default function ListingDetailPage() {
                   <p className="text-xs font-medium text-muted-foreground">
                     Assigned Agent
                   </p>
-                  {assignedUser ? (
-                    <div className="mt-1 flex items-center gap-2">
-                      <Avatar className="size-6">
-                        <AvatarFallback
-                          className={cn(
-                            getAgentAvatarColor(assignedUser.name),
-                            "text-white text-[10px] font-bold"
-                          )}
-                        >
-                          {assignedUser.name[0].toUpperCase()}
-                        </AvatarFallback>
-                      </Avatar>
-                      <div>
-                        <p className="text-sm font-medium">
-                          {assignedUser.name}
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          {assignedUser.role}
-                        </p>
-                      </div>
-                    </div>
-                  ) : agent ? (
+                  {agent ? (
                     <Link
                       href={`/agents/${agent.id}`}
                       className="mt-1 flex items-center gap-2 hover:opacity-80"

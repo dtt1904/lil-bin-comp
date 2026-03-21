@@ -1,34 +1,43 @@
 import { NextRequest } from "next/server";
+import { prisma } from "@/lib/db";
 import {
   authenticateRequest,
   jsonResponse,
   errorResponse,
   parseSearchParams,
 } from "@/lib/api-auth";
-import { store, generateId } from "@/lib/store";
-import type { ModuleInstallation, LogEvent } from "@/lib/types";
-import { ModuleStatus, LogLevel } from "@/lib/types";
+import { ModuleStatus, LogLevel } from "@/generated/prisma/enums";
 
 export async function GET(req: NextRequest) {
   const auth = authenticateRequest(req);
   if (!auth.ok) return auth.response;
 
   const q = parseSearchParams(req);
-  let results = store.moduleInstallations;
-
-  if (q.workspaceId) {
-    results = store.filter(results, (m) => m.workspaceId === q.workspaceId);
-  }
-  if (q.status) {
-    results = store.filter(results, (m) => m.status === q.status);
-  }
-
-  const total = results.length;
   const limit = parseInt(q.limit || "50", 10);
   const offset = parseInt(q.offset || "0", 10);
-  const page = results.slice(offset, offset + limit);
 
-  return jsonResponse({ data: page, meta: { total, limit, offset } });
+  try {
+    const where: Record<string, unknown> = {
+      organizationId: auth.ctx.organizationId,
+    };
+
+    if (q.workspaceId) where.workspaceId = q.workspaceId;
+    if (q.status) where.status = q.status as ModuleStatus;
+
+    const [data, total] = await Promise.all([
+      prisma.moduleInstallation.findMany({
+        where,
+        skip: offset,
+        take: limit,
+        orderBy: { createdAt: "desc" },
+      }),
+      prisma.moduleInstallation.count({ where }),
+    ]);
+
+    return jsonResponse({ data, meta: { total, limit, offset } });
+  } catch (err) {
+    return errorResponse(`Failed to fetch modules: ${err instanceof Error ? err.message : err}`, 500);
+  }
 }
 
 export async function POST(req: NextRequest) {
@@ -43,42 +52,51 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const duplicate = store.moduleInstallations.find(
-    (m) =>
-      m.moduleSlug === body.moduleSlug && m.workspaceId === body.workspaceId,
-  );
-  if (duplicate) {
-    return errorResponse(
-      `Module "${body.moduleSlug}" is already installed in workspace ${body.workspaceId}`,
-      409,
-    );
+  try {
+    const workspace = await prisma.workspace.findUnique({ where: { id: body.workspaceId } });
+    if (!workspace) return errorResponse("Workspace not found", 404);
+
+    const duplicate = await prisma.moduleInstallation.findUnique({
+      where: {
+        moduleType_workspaceId: {
+          moduleType: body.moduleSlug,
+          workspaceId: body.workspaceId,
+        },
+      },
+    });
+    if (duplicate) {
+      return errorResponse(
+        `Module "${body.moduleSlug}" is already installed in workspace ${body.workspaceId}`,
+        409,
+      );
+    }
+
+    const installation = await prisma.moduleInstallation.create({
+      data: {
+        workspaceId: body.workspaceId,
+        organizationId: workspace.organizationId,
+        moduleType: body.moduleSlug,
+        status: ModuleStatus.ACTIVE,
+        config: body.config ?? undefined,
+      },
+    });
+
+    await prisma.logEvent.create({
+      data: {
+        organizationId: workspace.organizationId,
+        workspaceId: body.workspaceId,
+        level: LogLevel.INFO,
+        source: "api",
+        message: `Module "${body.moduleName}" (${body.moduleSlug}) installed`,
+        metadata: { moduleId: installation.id, moduleType: body.moduleSlug },
+      },
+    });
+
+    return jsonResponse({ data: installation }, 201);
+  } catch (err) {
+    if (err instanceof Error && err.message.includes("already installed")) {
+      return errorResponse(err.message, 409);
+    }
+    return errorResponse(`Failed to install module: ${err instanceof Error ? err.message : err}`, 500);
   }
-
-  const installation: ModuleInstallation = {
-    id: generateId("mod"),
-    workspaceId: body.workspaceId,
-    moduleSlug: body.moduleSlug,
-    moduleName: body.moduleName,
-    version: body.version ?? "1.0.0",
-    status: ModuleStatus.ACTIVE,
-    config: body.config,
-    installedById: "user-1",
-    installedAt: new Date(),
-    updatedAt: new Date(),
-  };
-
-  store.insert(store.moduleInstallations, installation);
-
-  const logEvent: LogEvent = {
-    id: generateId("log"),
-    organizationId: auth.ctx.organizationId,
-    workspaceId: body.workspaceId,
-    level: LogLevel.INFO,
-    message: `Module "${body.moduleName}" (${body.moduleSlug}) v${installation.version} installed`,
-    metadata: { moduleId: installation.id, moduleSlug: body.moduleSlug },
-    timestamp: new Date(),
-  };
-  store.insert(store.logEvents, logEvent);
-
-  return jsonResponse({ data: installation }, 201);
 }

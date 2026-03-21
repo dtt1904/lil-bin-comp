@@ -1,43 +1,49 @@
 import { NextRequest } from "next/server";
+import { prisma } from "@/lib/db";
 import {
   authenticateRequest,
   jsonResponse,
   errorResponse,
   parseSearchParams,
 } from "@/lib/api-auth";
-import { store, generateId } from "@/lib/store";
-import type { SOPDocument } from "@/lib/types";
-import { Visibility } from "@/lib/types";
+import { Visibility } from "@/generated/prisma/enums";
 
 export async function GET(req: NextRequest) {
   const auth = authenticateRequest(req);
   if (!auth.ok) return auth.response;
 
   const q = parseSearchParams(req);
-  let results = store.sopDocuments;
-
-  if (q.workspaceId) {
-    results = store.filter(results, (s) => s.workspaceId === q.workspaceId);
-  }
-  if (q.visibility) {
-    results = store.filter(results, (s) => s.visibility === q.visibility);
-  }
-  if (q.search) {
-    const s = q.search.toLowerCase();
-    results = store.filter(
-      results,
-      (doc) =>
-        doc.title.toLowerCase().includes(s) ||
-        doc.content.toLowerCase().includes(s),
-    );
-  }
-
-  const total = results.length;
   const limit = parseInt(q.limit || "50", 10);
   const offset = parseInt(q.offset || "0", 10);
-  const page = results.slice(offset, offset + limit);
 
-  return jsonResponse({ data: page, meta: { total, limit, offset } });
+  try {
+    const where: Record<string, unknown> = {
+      organizationId: auth.ctx.organizationId,
+    };
+
+    if (q.workspaceId) where.workspaceId = q.workspaceId;
+    if (q.visibility) where.visibility = q.visibility as Visibility;
+    if (q.search) {
+      where.OR = [
+        { title: { contains: q.search, mode: "insensitive" } },
+        { content: { contains: q.search, mode: "insensitive" } },
+      ];
+    }
+
+    const [data, total] = await Promise.all([
+      prisma.sOPDocument.findMany({
+        where,
+        skip: offset,
+        take: limit,
+        orderBy: { createdAt: "desc" },
+      }),
+      prisma.sOPDocument.count({ where }),
+    ]);
+
+    return jsonResponse({ data, meta: { total, limit, offset } });
+  } catch (err) {
+    return errorResponse(`Failed to fetch SOPs: ${err instanceof Error ? err.message : err}`, 500);
+  }
 }
 
 export async function POST(req: NextRequest) {
@@ -50,19 +56,21 @@ export async function POST(req: NextRequest) {
     return errorResponse("title and content are required");
   }
 
-  const doc: SOPDocument = {
-    id: generateId("sop"),
-    organizationId: auth.ctx.organizationId,
-    workspaceId: body.workspaceId,
-    title: body.title,
-    content: body.content,
-    version: 1,
-    visibility: body.visibility ?? Visibility.WORKSPACE,
-    createdById: body.createdById ?? "user-1",
-    createdAt: new Date(),
-    updatedAt: new Date(),
-  };
+  try {
+    const doc = await prisma.sOPDocument.create({
+      data: {
+        organizationId: auth.ctx.organizationId,
+        workspaceId: body.workspaceId ?? undefined,
+        departmentId: body.departmentId ?? undefined,
+        title: body.title,
+        content: body.content,
+        visibility: (body.visibility as Visibility) ?? Visibility.WORKSPACE,
+        tags: body.tags ?? [],
+      },
+    });
 
-  store.insert(store.sopDocuments, doc);
-  return jsonResponse({ data: doc }, 201);
+    return jsonResponse({ data: doc }, 201);
+  } catch (err) {
+    return errorResponse(`Failed to create SOP: ${err instanceof Error ? err.message : err}`, 500);
+  }
 }

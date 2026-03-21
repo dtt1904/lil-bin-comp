@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { store } from "@/lib/store";
+import { prisma } from "@/lib/db";
 import {
   authenticateRequest,
   jsonResponse,
@@ -14,16 +14,22 @@ export async function PATCH(
   if (!auth.ok) return auth.response;
 
   const { id } = await params;
-  const notification = store.findById(store.notifications, id);
-  if (!notification) return errorResponse("Notification not found", 404);
 
-  const body = await req.json();
+  try {
+    const notification = await prisma.notification.findUnique({ where: { id } });
+    if (!notification) return errorResponse("Notification not found", 404);
 
-  const updates: Record<string, unknown> = {};
-  if (body.isRead !== undefined) updates.isRead = body.isRead;
+    const body = await req.json();
 
-  const updated = store.update(store.notifications, id, updates);
-  return jsonResponse({ data: updated });
+    const updates: Record<string, unknown> = {};
+    if (body.isRead !== undefined) updates.read = body.isRead;
+    if (body.read !== undefined) updates.read = body.read;
+
+    const updated = await prisma.notification.update({ where: { id }, data: updates });
+    return jsonResponse({ data: updated });
+  } catch (err) {
+    return errorResponse(`Failed to update notification: ${err instanceof Error ? err.message : err}`, 500);
+  }
 }
 
 export async function DELETE(
@@ -34,9 +40,14 @@ export async function DELETE(
   if (!auth.ok) return auth.response;
 
   const { id } = await params;
-  const notification = store.findById(store.notifications, id);
-  if (!notification) return errorResponse("Notification not found", 404);
 
-  store.remove(store.notifications, id);
-  return jsonResponse({ success: true });
+  try {
+    const notification = await prisma.notification.findUnique({ where: { id } });
+    if (!notification) return errorResponse("Notification not found", 404);
+
+    await prisma.notification.delete({ where: { id } });
+    return jsonResponse({ success: true });
+  } catch (err) {
+    return errorResponse(`Failed to delete notification: ${err instanceof Error ? err.message : err}`, 500);
+  }
 }

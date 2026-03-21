@@ -4,8 +4,8 @@ import {
   jsonResponse,
   errorResponse,
 } from "@/lib/api-auth";
-import { store } from "@/lib/store";
-import { WorkspaceType } from "@/lib/types";
+import { prisma } from "@/lib/db";
+import { WorkspaceType } from "@/generated/prisma/enums";
 
 const VALID_WORKSPACE_TYPES = Object.values(WorkspaceType);
 
@@ -17,39 +17,31 @@ export async function GET(
   if (!auth.ok) return auth.response;
 
   const { id } = await params;
-  const workspace = store.findById(store.workspaces, id);
-  if (!workspace) {
-    return errorResponse("Workspace not found", 404);
-  }
 
-  const departmentCount = store.filter(
-    store.departments,
-    (d) => d.workspaceId === id
-  ).length;
-  const agentCount = store.filter(
-    store.agents,
-    (a) => a.workspaceId === id
-  ).length;
-  const taskCount = store.filter(
-    store.tasks,
-    (t) => t.workspaceId === id
-  ).length;
-  const projectCount = store.filter(
-    store.projects,
-    (p) => p.workspaceId === id
-  ).length;
-
-  return jsonResponse({
-    data: {
-      ...workspace,
-      _counts: {
-        departments: departmentCount,
-        agents: agentCount,
-        tasks: taskCount,
-        projects: projectCount,
+  try {
+    const workspace = await prisma.workspace.findUnique({
+      where: { id },
+      include: {
+        _count: {
+          select: { departments: true, agents: true, tasks: true, projects: true },
+        },
       },
-    },
-  });
+    });
+
+    if (!workspace) {
+      return errorResponse("Workspace not found", 404);
+    }
+
+    const { _count, ...rest } = workspace;
+    return jsonResponse({
+      data: {
+        ...rest,
+        _counts: _count,
+      },
+    });
+  } catch {
+    return errorResponse("Internal error", 500);
+  }
 }
 
 export async function PATCH(
@@ -60,10 +52,6 @@ export async function PATCH(
   if (!auth.ok) return auth.response;
 
   const { id } = await params;
-  const existing = store.findById(store.workspaces, id);
-  if (!existing) {
-    return errorResponse("Workspace not found", 404);
-  }
 
   let body: Record<string, unknown>;
   try {
@@ -72,12 +60,11 @@ export async function PATCH(
     return errorResponse("Invalid JSON body", 400);
   }
 
-  const { name, slug, type, description, iconUrl } = body as {
+  const { name, slug, type, description } = body as {
     name?: string;
     slug?: string;
     type?: string;
     description?: string;
-    iconUrl?: string;
   };
 
   if (type && !VALID_WORKSPACE_TYPES.includes(type as WorkspaceType)) {
@@ -87,27 +74,29 @@ export async function PATCH(
     );
   }
 
-  if (slug && slug !== existing.slug) {
-    const slugExists =
-      store.filter(store.workspaces, (w) => w.slug === slug).length > 0;
-    if (slugExists) {
+  const data: Record<string, unknown> = {};
+  if (name !== undefined) data.name = name;
+  if (slug !== undefined) data.slug = slug;
+  if (type !== undefined) data.type = type as WorkspaceType;
+  if (description !== undefined) data.description = description;
+
+  try {
+    const updated = await prisma.workspace.update({
+      where: { id },
+      data,
+    });
+
+    return jsonResponse({ data: updated });
+  } catch (e: any) {
+    if (e.code === "P2025") return errorResponse("Workspace not found", 404);
+    if (e.code === "P2002") {
       return errorResponse(
         `Workspace with slug "${slug}" already exists`,
         409
       );
     }
+    return errorResponse("Internal error", 500);
   }
-
-  const updates: Record<string, unknown> = { updatedAt: new Date() };
-  if (name !== undefined) updates.name = name;
-  if (slug !== undefined) updates.slug = slug;
-  if (type !== undefined) updates.type = type as WorkspaceType;
-  if (description !== undefined) updates.description = description;
-  if (iconUrl !== undefined) updates.iconUrl = iconUrl;
-
-  const updated = store.update(store.workspaces, id, updates);
-
-  return jsonResponse({ data: updated });
 }
 
 export async function DELETE(
@@ -118,47 +107,12 @@ export async function DELETE(
   if (!auth.ok) return auth.response;
 
   const { id } = await params;
-  const existing = store.findById(store.workspaces, id);
-  if (!existing) {
-    return errorResponse("Workspace not found", 404);
+
+  try {
+    await prisma.workspace.delete({ where: { id } });
+    return jsonResponse({ success: true });
+  } catch (e: any) {
+    if (e.code === "P2025") return errorResponse("Workspace not found", 404);
+    return errorResponse("Internal error", 500);
   }
-
-  const departmentsToRemove = store.filter(
-    store.departments,
-    (d) => d.workspaceId === id
-  );
-  for (const dept of departmentsToRemove) {
-    store.remove(store.departments, dept.id);
-  }
-
-  const tasksToRemove = store.filter(
-    store.tasks,
-    (t) => t.workspaceId === id
-  );
-  for (const task of tasksToRemove) {
-    store.remove(store.tasks, task.id);
-  }
-
-  const agentsToReassign = store.filter(
-    store.agents,
-    (a) => a.workspaceId === id
-  );
-  for (const agent of agentsToReassign) {
-    store.update(store.agents, agent.id, {
-      workspaceId: undefined,
-      departmentId: undefined,
-    });
-  }
-
-  const projectsToRemove = store.filter(
-    store.projects,
-    (p) => p.workspaceId === id
-  );
-  for (const project of projectsToRemove) {
-    store.remove(store.projects, project.id);
-  }
-
-  store.remove(store.workspaces, id);
-
-  return jsonResponse({ success: true });
 }
