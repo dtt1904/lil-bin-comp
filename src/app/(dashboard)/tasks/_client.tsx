@@ -1,13 +1,14 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { LayoutList, Kanban, Plus, X } from "lucide-react";
+import { LayoutList, Kanban, X } from "lucide-react";
 import { getStatusColor, getPriorityColor } from "@/lib/helpers";
 import { Button } from "@/components/ui/button";
 import { TaskTable } from "@/components/tasks/task-table";
 import { TaskKanban } from "@/components/tasks/task-kanban";
 import type { SerializedTask } from "@/components/tasks/task-card";
 import { cn } from "@/lib/utils";
+import { CreateTaskModal } from "@/components/forms/create-task-modal";
 
 const ALL_STATUSES = [
   "BACKLOG",
@@ -99,10 +100,7 @@ export function TasksPageClient({ tasks, workspaces }: TasksPageClientProps) {
               </button>
             </div>
 
-            <Button size="sm" className="gap-1.5">
-              <Plus className="size-4" />
-              Create Task
-            </Button>
+            <CreateTaskModal workspaces={workspaces} />
           </div>
         </div>
 

@@ -1,8 +1,8 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { CreateAgentModal } from "@/components/forms/create-agent-modal";
 import {
   Select,
   SelectContent,
@@ -62,10 +62,7 @@ export function AgentsPageClient({
             {totalAgentCount} agents across {workspaces.length} workspaces
           </p>
         </div>
-        <Button>
-          <Plus className="h-4 w-4" />
-          Create Agent
-        </Button>
+        <CreateAgentModal workspaces={workspaces} />
       </div>
 
       <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">

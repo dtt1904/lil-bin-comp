@@ -2,13 +2,12 @@
 
 import { useState, useMemo } from "react";
 import Link from "next/link";
-import { Plus, X, Building2 } from "lucide-react";
+import { X, Building2 } from "lucide-react";
 import {
   formatCurrency,
   formatRelativeTime,
   getAgentAvatarColor,
 } from "@/lib/helpers";
-import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
@@ -20,6 +19,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
+import { CreateListingModal } from "@/components/forms/create-listing-modal";
 
 const LISTING_STATUS_COLOR: Record<string, string> = {
   NEW: "bg-blue-500/15 text-blue-400 border-blue-500/20",
@@ -118,10 +118,7 @@ export function ListingsPageClient({
               all workspaces
             </p>
           </div>
-          <Button size="sm" className="gap-1.5">
-            <Plus className="size-4" />
-            Add Listing
-          </Button>
+          <CreateListingModal workspaces={workspaces} />
         </div>
 
         {/* Filter Bar */}

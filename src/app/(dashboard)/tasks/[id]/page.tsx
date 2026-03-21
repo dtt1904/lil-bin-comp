@@ -3,9 +3,6 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import {
   ChevronRight,
-  RotateCcw,
-  CheckCircle2,
-  Archive,
   CalendarDays,
   DollarSign,
   GitBranch,
@@ -23,7 +20,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Separator } from "@/components/ui/separator";
-import { Button } from "@/components/ui/button";
+import { TaskActions } from "@/components/forms/task-actions";
 import {
   Table,
   TableBody,
@@ -136,20 +133,7 @@ export default async function TaskDetailPage({
               {task.id} &middot; Created {formatRelativeTime(task.createdAt)}
             </p>
           </div>
-          <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" className="gap-1.5">
-              <CheckCircle2 className="size-4" />
-              Approve
-            </Button>
-            <Button variant="outline" size="sm" className="gap-1.5">
-              <RotateCcw className="size-4" />
-              Retry
-            </Button>
-            <Button variant="outline" size="sm" className="gap-1.5 text-muted-foreground">
-              <Archive className="size-4" />
-              Archive
-            </Button>
-          </div>
+          <TaskActions taskId={task.id} currentStatus={task.status} />
         </div>
 
         {/* Main Layout */}

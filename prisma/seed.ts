@@ -45,7 +45,7 @@ async function main() {
   await prisma.integration.deleteMany();
   await prisma.artifact.deleteMany();
   await prisma.promptTemplate.deleteMany();
-  await prisma.sopDocument.deleteMany();
+  await prisma.sOPDocument.deleteMany();
   await prisma.memoryEntry.deleteMany();
   await prisma.agentHeartbeat.deleteMany();
   await prisma.costRecord.deleteMany();
@@ -1270,7 +1270,7 @@ async function main() {
 
   // ─── SOP Documents ─────────────────────────────────────────────────────────
   console.log("📄 Seeding SOP documents...");
-  await prisma.sopDocument.createMany({
+  await prisma.sOPDocument.createMany({
     data: [
       {
         id: "sop-1",

@@ -3,7 +3,7 @@ import { prisma } from "@/lib/db";
 import { ContentPageClient } from "./_client";
 
 export default async function ContentPage() {
-  const [drafts, shareTasks, workspaces] = await Promise.all([
+  const [drafts, shareTasks, workspaces, listings] = await Promise.all([
     prisma.postDraft.findMany({
       include: {
         listing: { select: { address: true } },
@@ -27,6 +27,10 @@ export default async function ContentPage() {
       select: { id: true, name: true },
       orderBy: { name: "asc" },
     }),
+    prisma.listing.findMany({
+      select: { id: true, address: true },
+      orderBy: { address: "asc" },
+    }),
   ]);
 
   return (
@@ -34,6 +38,7 @@ export default async function ContentPage() {
       drafts={JSON.parse(JSON.stringify(drafts))}
       shareTasks={JSON.parse(JSON.stringify(shareTasks))}
       workspaces={JSON.parse(JSON.stringify(workspaces))}
+      listings={JSON.parse(JSON.stringify(listings))}
     />
   );
 }

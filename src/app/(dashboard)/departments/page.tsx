@@ -1,10 +1,10 @@
 export const dynamic = "force-dynamic";
 import Link from "next/link";
-import { Plus, Users, ListChecks, FolderKanban, Bot } from "lucide-react";
+import { Users, ListChecks, FolderKanban, Bot } from "lucide-react";
 import { prisma } from "@/lib/db";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { CreateDepartmentModal } from "@/components/forms/create-department-modal";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { getAgentAvatarColor } from "@/lib/helpers";
 import { cn } from "@/lib/utils";
@@ -47,10 +47,7 @@ export default async function DepartmentsPage() {
               {departments.length} departments across {workspaces.length} workspaces
             </p>
           </div>
-          <Button size="sm" className="gap-2">
-            <Plus className="h-4 w-4" />
-            Create Department
-          </Button>
+          <CreateDepartmentModal workspaces={workspaces.map((ws) => ({ id: ws.id, name: ws.name }))} />
         </div>
 
         {/* Grouped by workspace */}

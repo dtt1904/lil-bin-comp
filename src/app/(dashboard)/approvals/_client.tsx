@@ -1,13 +1,14 @@
 "use client";
 
 import { useState, useMemo } from "react";
+import { useRouter } from "next/navigation";
 import {
   ShieldCheck,
   Clock,
   CheckCircle2,
   XCircle,
-  MessageSquare,
   Filter,
+  Loader2,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -20,6 +21,7 @@ import {
   getSeverityColor,
 } from "@/lib/helpers";
 import { cn } from "@/lib/utils";
+import { api } from "@/lib/api-client";
 
 interface SerializedApproval {
   id: string;
@@ -66,9 +68,29 @@ function getSeverityBorderColor(severity: string) {
 }
 
 export function ApprovalsPageClient({ approvals, workspaces }: ApprovalsClientProps) {
+  const router = useRouter();
   const [activeTab, setActiveTab] = useState("pending");
   const [workspaceFilter, setWorkspaceFilter] = useState("all");
   const [severityFilter, setSeverityFilter] = useState("all");
+  const [actionLoading, setActionLoading] = useState<Record<string, string>>({});
+
+  async function handleReview(approvalId: string, decision: "APPROVED" | "DENIED") {
+    setActionLoading(prev => ({ ...prev, [approvalId]: decision }));
+    const result = await api(`/approvals/${approvalId}/review`, {
+      method: "POST",
+      body: JSON.stringify({ decision }),
+    });
+    setActionLoading(prev => {
+      const next = { ...prev };
+      delete next[approvalId];
+      return next;
+    });
+    if (!result.ok) {
+      alert(result.error || "Failed to process review");
+      return;
+    }
+    router.refresh();
+  }
 
   const pendingCount = approvals.filter((a) => a.status === "PENDING").length;
 
@@ -317,25 +339,29 @@ export function ApprovalsPageClient({ approvals, workspaces }: ApprovalsClientPr
                                 <Button
                                   size="sm"
                                   className="h-7 gap-1.5 bg-emerald-600 text-white hover:bg-emerald-700"
+                                  disabled={!!actionLoading[approval.id]}
+                                  onClick={() => handleReview(approval.id, "APPROVED")}
                                 >
-                                  <CheckCircle2 className="h-3.5 w-3.5" />
+                                  {actionLoading[approval.id] === "APPROVED" ? (
+                                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                  ) : (
+                                    <CheckCircle2 className="h-3.5 w-3.5" />
+                                  )}
                                   Approve
                                 </Button>
                                 <Button
                                   size="sm"
                                   variant="destructive"
                                   className="h-7 gap-1.5"
+                                  disabled={!!actionLoading[approval.id]}
+                                  onClick={() => handleReview(approval.id, "DENIED")}
                                 >
-                                  <XCircle className="h-3.5 w-3.5" />
+                                  {actionLoading[approval.id] === "DENIED" ? (
+                                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                  ) : (
+                                    <XCircle className="h-3.5 w-3.5" />
+                                  )}
                                   Deny
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  className="h-7 gap-1.5 text-muted-foreground"
-                                >
-                                  <MessageSquare className="h-3.5 w-3.5" />
-                                  Comment
                                 </Button>
                               </div>
                             )}

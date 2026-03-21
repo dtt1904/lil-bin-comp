@@ -1,8 +1,7 @@
 export const dynamic = "force-dynamic";
-import { Plus } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import { prisma } from "@/lib/db";
 import { WorkspaceCard } from "@/components/workspaces/workspace-card";
+import { CreateWorkspaceModal } from "@/components/forms/create-workspace-modal";
 
 export default async function WorkspacesPage() {
   const workspaces = await prisma.workspace.findMany({
@@ -28,10 +27,7 @@ export default async function WorkspacesPage() {
             Manage your workspaces and their resources
           </p>
         </div>
-        <Button>
-          <Plus className="h-4 w-4" />
-          Create Workspace
-        </Button>
+        <CreateWorkspaceModal />
       </div>
 
       <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">

@@ -5,13 +5,11 @@ import Link from "next/link";
 import {
   LayoutList,
   Kanban,
-  Plus,
   X,
   ExternalLink,
   Share2,
 } from "lucide-react";
 import { formatRelativeTime, getAgentAvatarColor } from "@/lib/helpers";
-import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -25,6 +23,7 @@ import {
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
+import { CreateDraftModal } from "@/components/forms/create-draft-modal";
 
 const PLATFORM_COLOR: Record<string, string> = {
   FACEBOOK_PAGE: "bg-blue-500/15 text-blue-400 border-blue-500/20",
@@ -96,16 +95,23 @@ interface SerializedWorkspace {
   name: string;
 }
 
+interface SerializedListingOption {
+  id: string;
+  address: string;
+}
+
 interface ContentPageClientProps {
   drafts: SerializedPostDraft[];
   shareTasks: SerializedShareTask[];
   workspaces: SerializedWorkspace[];
+  listings: SerializedListingOption[];
 }
 
 export function ContentPageClient({
   drafts,
   shareTasks,
   workspaces,
+  listings,
 }: ContentPageClientProps) {
   const [view, setView] = useState<"board" | "table">("board");
   const [selectedStatuses, setSelectedStatuses] = useState<Set<string>>(
@@ -181,10 +187,7 @@ export function ContentPageClient({
                 Table
               </button>
             </div>
-            <Button size="sm" className="gap-1.5">
-              <Plus className="size-4" />
-              Create Draft
-            </Button>
+            <CreateDraftModal workspaces={workspaces} listings={listings} />
           </div>
         </div>
 
