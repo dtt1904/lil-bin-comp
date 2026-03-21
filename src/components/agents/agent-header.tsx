@@ -1,0 +1,79 @@
+import { Badge } from "@/components/ui/badge";
+import type { Agent } from "@/lib/types";
+import {
+  getAgentStatusDotColor,
+  getAgentAvatarColor,
+  getAgentStatusColor,
+} from "@/lib/helpers";
+import { cn } from "@/lib/utils";
+
+function getInitials(name: string): string {
+  return name
+    .replace(/[_-]/g, " ")
+    .split(" ")
+    .map((w) => w[0])
+    .join("")
+    .toUpperCase()
+    .slice(0, 2);
+}
+
+function extractRole(description?: string): string {
+  if (!description) return "Agent";
+  const parts = description.split("—");
+  return parts[0]?.trim() || "Agent";
+}
+
+interface AgentHeaderProps {
+  agent: Agent;
+}
+
+export function AgentHeader({ agent }: AgentHeaderProps) {
+  return (
+    <div className="flex items-start gap-5">
+      <div
+        className={cn(
+          "flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl text-xl font-bold text-white",
+          getAgentAvatarColor(agent.name)
+        )}
+      >
+        {getInitials(agent.name)}
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-3">
+          <h1 className="text-2xl font-semibold tracking-tight">
+            {agent.name}
+          </h1>
+          <span className="text-sm text-muted-foreground">@{agent.slug}</span>
+          <div className="flex items-center gap-1.5">
+            <div
+              className={cn(
+                "h-2.5 w-2.5 rounded-full",
+                getAgentStatusDotColor(agent.status)
+              )}
+            />
+            <span
+              className={cn("text-sm font-medium", getAgentStatusColor(agent.status))}
+            >
+              {agent.status}
+            </span>
+          </div>
+        </div>
+        <p className="mt-0.5 text-sm font-medium text-muted-foreground">
+          {extractRole(agent.description)}
+        </p>
+        {agent.description && (
+          <p className="mt-1 text-sm text-muted-foreground/80 line-clamp-2">
+            {agent.description.split("—").slice(1).join("—").trim()}
+          </p>
+        )}
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {agent.tags.map((tag) => (
+            <Badge key={tag} variant="secondary" className="text-xs">
+              {tag}
+            </Badge>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}

@@ -1,0 +1,1018 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─────────────────────────────────────────────
+// Enums
+// ─────────────────────────────────────────────
+
+enum WorkspaceType {
+  HQ
+  CLIENT
+  INTERNAL
+}
+
+enum UserRole {
+  OWNER
+  ADMIN
+  MANAGER
+  MEMBER
+  VIEWER
+}
+
+enum AgentStatus {
+  ONLINE
+  OFFLINE
+  IDLE
+  BUSY
+  PAUSED
+  ERROR
+}
+
+enum PermissionScope {
+  PRIVATE
+  WORKSPACE
+  GLOBAL
+}
+
+enum ProjectStatus {
+  ACTIVE
+  PAUSED
+  COMPLETED
+  ARCHIVED
+}
+
+enum TaskStatus {
+  BACKLOG
+  QUEUED
+  RUNNING
+  BLOCKED
+  AWAITING_APPROVAL
+  FAILED
+  COMPLETED
+  ARCHIVED
+}
+
+enum TaskPriority {
+  CRITICAL
+  HIGH
+  MEDIUM
+  LOW
+}
+
+enum TaskRunStatus {
+  STARTED
+  RUNNING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  DENIED
+  EXPIRED
+}
+
+enum Severity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum LogLevel {
+  DEBUG
+  INFO
+  WARN
+  ERROR
+  CRITICAL
+}
+
+enum MemoryType {
+  NOTE
+  CONTEXT
+  FACT
+  PREFERENCE
+  INSTRUCTION
+}
+
+enum Visibility {
+  PRIVATE
+  WORKSPACE
+  GLOBAL
+}
+
+enum ArtifactType {
+  DOCUMENT
+  IMAGE
+  SPREADSHEET
+  REPORT
+  DRAFT
+  CODE
+  OTHER
+}
+
+enum IntegrationType {
+  GOOGLE_DRIVE
+  GOOGLE_SHEETS
+  META_FACEBOOK
+  STRIPE
+  WEBHOOK
+  CUSTOM
+}
+
+enum IntegrationStatus {
+  ACTIVE
+  INACTIVE
+  ERROR
+}
+
+enum ModuleStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum ListingStatus {
+  NEW
+  INTAKE
+  MEDIA_READY
+  CONTENT_DRAFTING
+  REVIEW
+  PUBLISHED
+  ARCHIVED
+}
+
+enum MediaAssetType {
+  DRONE
+  FRONT_EXTERIOR
+  INTERIOR
+  BACK_EXTERIOR
+  VIDEO
+  FLOOR_PLAN
+  OTHER
+}
+
+enum PostPlatform {
+  FACEBOOK_PAGE
+  FACEBOOK_GROUP
+  INSTAGRAM
+  TIKTOK
+  OTHER
+}
+
+enum PostDraftStatus {
+  DRAFT
+  REVIEW
+  APPROVED
+  SCHEDULED
+  PUBLISHED
+  FAILED
+}
+
+enum ShareTaskStatus {
+  PENDING
+  SHARED
+  FAILED
+  SKIPPED
+}
+
+enum InvoiceStatus {
+  DRAFT
+  SENT
+  PAID
+  OVERDUE
+  CANCELLED
+}
+
+enum IntegrationAccountStatus {
+  ACTIVE
+  EXPIRED
+  REVOKED
+}
+
+// ─────────────────────────────────────────────
+// Core Platform Models
+// ─────────────────────────────────────────────
+
+model Organization {
+  id          String   @id @default(cuid())
+  name        String
+  slug        String   @unique
+  description String?
+  logoUrl     String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  workspaces          Workspace[]
+  departments         Department[]
+  users               User[]
+  agents              Agent[]
+  projects            Project[]
+  tasks               Task[]
+  logEvents           LogEvent[]
+  notifications       Notification[]
+  memoryEntries       MemoryEntry[]
+  sopDocuments        SOPDocument[]
+  promptTemplates     PromptTemplate[]
+  artifacts           Artifact[]
+  integrations        Integration[]
+  costRecords         CostRecord[]
+  moduleInstallations ModuleInstallation[]
+  listings            Listing[]
+  mediaAssets         MediaAsset[]
+  postDrafts          PostDraft[]
+  publishedPosts      PublishedPost[]
+  shareTasks          ShareTask[]
+  invoiceSnapshots    InvoiceSnapshot[]
+  integrationAccounts IntegrationAccount[]
+}
+
+model Workspace {
+  id             String        @id @default(cuid())
+  name           String
+  slug           String
+  description    String?
+  type           WorkspaceType
+  organizationId String
+  metadata       Json?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  departments         Department[]
+  agents              Agent[]
+  projects            Project[]
+  tasks               Task[]
+  logEvents           LogEvent[]
+  notifications       Notification[]
+  memoryEntries       MemoryEntry[]
+  sopDocuments        SOPDocument[]
+  promptTemplates     PromptTemplate[]
+  artifacts           Artifact[]
+  integrations        Integration[]
+  costRecords         CostRecord[]
+  moduleInstallations ModuleInstallation[]
+  listings            Listing[]
+  mediaAssets         MediaAsset[]
+  postDrafts          PostDraft[]
+  publishedPosts      PublishedPost[]
+  shareTasks          ShareTask[]
+  invoiceSnapshots    InvoiceSnapshot[]
+  integrationAccounts IntegrationAccount[]
+
+  @@unique([slug, organizationId])
+  @@index([organizationId])
+  @@index([type])
+}
+
+model Department {
+  id             String  @id @default(cuid())
+  name           String
+  slug           String
+  description    String?
+  workspaceId    String
+  organizationId String
+  managerId      String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  workspace    Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  manager      Agent?       @relation("DepartmentManager", fields: [managerId], references: [id], onDelete: SetNull)
+
+  agents        Agent[]       @relation("AgentDepartment")
+  projects      Project[]
+  tasks         Task[]
+  memoryEntries MemoryEntry[]
+  sopDocuments  SOPDocument[]
+
+  @@unique([slug, workspaceId])
+  @@index([workspaceId])
+  @@index([organizationId])
+  @@index([managerId])
+}
+
+model User {
+  id             String   @id @default(cuid())
+  email          String   @unique
+  name           String
+  avatarUrl      String?
+  role           UserRole
+  organizationId String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  createdTasks    Task[]     @relation("TaskCreatedByUser")
+  approvalReviews Approval[] @relation("ApprovalReviewer")
+  notifications   Notification[]
+  authorComments  Comment[]  @relation("CommentAuthorUser")
+  reviewedPosts   PostDraft[] @relation("PostReviewedByUser")
+
+  @@index([organizationId])
+  @@index([role])
+}
+
+model Agent {
+  id             String      @id @default(cuid())
+  name           String
+  slug           String
+  codename       String?
+  description    String?
+  role           String
+  status         AgentStatus @default(OFFLINE)
+  provider       String
+  model          String
+  systemPrompt   String      @db.Text
+  temperature    Float       @default(0.7)
+  organizationId String
+  workspaceId    String?
+  departmentId   String?
+  avatarUrl      String?
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  workspace    Workspace?   @relation(fields: [workspaceId], references: [id], onDelete: SetNull)
+  department   Department?  @relation("AgentDepartment", fields: [departmentId], references: [id], onDelete: SetNull)
+
+  managedDepartments Department[]      @relation("DepartmentManager")
+  permissions        AgentPermission[]
+  assignedTasks      Task[]            @relation("TaskAssignee")
+  taskRuns           TaskRun[]
+  approvalRequests   Approval[]        @relation("ApprovalRequestedBy")
+  logEvents          LogEvent[]
+  memoryEntries      MemoryEntry[]     @relation("MemoryOwnerAgent")
+  artifacts          Artifact[]
+  costRecords        CostRecord[]
+  heartbeats         AgentHeartbeat[]
+  authorComments     Comment[]         @relation("CommentAuthorAgent")
+  assignedListings   Listing[]         @relation("ListingAssignedAgent")
+  createdPosts       PostDraft[]       @relation("PostCreatedByAgent")
+  assignedShareTasks ShareTask[]       @relation("ShareTaskAssignedAgent")
+
+  @@unique([slug, organizationId])
+  @@index([organizationId])
+  @@index([workspaceId])
+  @@index([departmentId])
+  @@index([status])
+}
+
+model AgentPermission {
+  id        String          @id @default(cuid())
+  agentId   String
+  resource  String
+  action    String
+  scope     PermissionScope
+  createdAt DateTime        @default(now())
+
+  agent Agent @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@index([agentId])
+  @@index([resource, action])
+}
+
+// ─────────────────────────────────────────────
+// Project & Task Management
+// ─────────────────────────────────────────────
+
+model Project {
+  id             String        @id @default(cuid())
+  name           String
+  slug           String
+  description    String?
+  status         ProjectStatus @default(ACTIVE)
+  organizationId String
+  workspaceId    String
+  departmentId   String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  workspace    Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  department   Department?  @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+
+  tasks     Task[]
+  artifacts Artifact[]
+
+  @@unique([slug, organizationId])
+  @@index([organizationId])
+  @@index([workspaceId])
+  @@index([departmentId])
+  @@index([status])
+}
+
+model Task {
+  id               String       @id @default(cuid())
+  title            String
+  description      String?      @db.Text
+  status           TaskStatus   @default(BACKLOG)
+  priority         TaskPriority @default(MEDIUM)
+  organizationId   String
+  workspaceId      String?
+  departmentId     String?
+  projectId        String?
+  assigneeAgentId  String?
+  createdByUserId  String?
+  dueDate          DateTime?
+  labels           String[]
+  estimatedCost    Float?
+  actualCost       Float?
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+
+  organization  Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  workspace     Workspace?   @relation(fields: [workspaceId], references: [id], onDelete: SetNull)
+  department    Department?  @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  project       Project?     @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  assigneeAgent Agent?       @relation("TaskAssignee", fields: [assigneeAgentId], references: [id], onDelete: SetNull)
+  createdByUser User?        @relation("TaskCreatedByUser", fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  taskRuns           TaskRun[]
+  approvals          Approval[]
+  logEvents          LogEvent[]
+  artifacts          Artifact[]
+  costRecords        CostRecord[]
+  comments           Comment[]        @relation("TaskComments")
+  dependsOn          TaskDependency[] @relation("TaskDependsOn")
+  requiredByTasks    TaskDependency[] @relation("TaskRequired")
+
+  @@index([organizationId])
+  @@index([workspaceId])
+  @@index([departmentId])
+  @@index([projectId])
+  @@index([assigneeAgentId])
+  @@index([createdByUserId])
+  @@index([status])
+  @@index([priority])
+  @@index([dueDate])
+}
+
+model TaskDependency {
+  id              String   @id @default(cuid())
+  taskId          String
+  dependsOnTaskId String
+  createdAt       DateTime @default(now())
+
+  task      Task @relation("TaskDependsOn", fields: [taskId], references: [id], onDelete: Cascade)
+  dependsOn Task @relation("TaskRequired", fields: [dependsOnTaskId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, dependsOnTaskId])
+  @@index([taskId])
+  @@index([dependsOnTaskId])
+}
+
+model TaskRun {
+  id          String        @id @default(cuid())
+  taskId      String
+  agentId     String
+  status      TaskRunStatus @default(STARTED)
+  input       Json?
+  output      Json?
+  error       String?       @db.Text
+  tokensUsed  Int?
+  cost        Float?
+  startedAt   DateTime      @default(now())
+  completedAt DateTime?
+  createdAt   DateTime      @default(now())
+
+  task  Task  @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  agent Agent @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  approvals   Approval[]
+  costRecords CostRecord[]
+
+  @@index([taskId])
+  @@index([agentId])
+  @@index([status])
+  @@index([startedAt])
+}
+
+// ─────────────────────────────────────────────
+// Approvals & Collaboration
+// ─────────────────────────────────────────────
+
+model Approval {
+  id            String         @id @default(cuid())
+  taskId        String?
+  taskRunId     String?
+  requestedById String
+  reviewedById  String?
+  status        ApprovalStatus @default(PENDING)
+  severity      Severity       @default(MEDIUM)
+  title         String
+  description   String?        @db.Text
+  metadata      Json?
+  reviewedAt    DateTime?
+  expiresAt     DateTime?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  task        Task?    @relation(fields: [taskId], references: [id], onDelete: SetNull)
+  taskRun     TaskRun? @relation(fields: [taskRunId], references: [id], onDelete: SetNull)
+  requestedBy Agent    @relation("ApprovalRequestedBy", fields: [requestedById], references: [id], onDelete: Cascade)
+  reviewedBy  User?    @relation("ApprovalReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+
+  comments Comment[] @relation("ApprovalComments")
+
+  @@index([taskId])
+  @@index([taskRunId])
+  @@index([requestedById])
+  @@index([reviewedById])
+  @@index([status])
+  @@index([severity])
+  @@index([expiresAt])
+}
+
+model Comment {
+  id            String   @id @default(cuid())
+  content       String   @db.Text
+  authorUserId  String?
+  authorAgentId String?
+  taskId        String?
+  approvalId    String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  authorUser  User?     @relation("CommentAuthorUser", fields: [authorUserId], references: [id], onDelete: SetNull)
+  authorAgent Agent?    @relation("CommentAuthorAgent", fields: [authorAgentId], references: [id], onDelete: SetNull)
+  task        Task?     @relation("TaskComments", fields: [taskId], references: [id], onDelete: Cascade)
+  approval    Approval? @relation("ApprovalComments", fields: [approvalId], references: [id], onDelete: Cascade)
+
+  @@index([authorUserId])
+  @@index([authorAgentId])
+  @@index([taskId])
+  @@index([approvalId])
+}
+
+// ─────────────────────────────────────────────
+// Observability & Notifications
+// ─────────────────────────────────────────────
+
+model LogEvent {
+  id             String   @id @default(cuid())
+  level          LogLevel
+  source         String
+  message        String   @db.Text
+  metadata       Json?
+  organizationId String
+  workspaceId    String?
+  agentId        String?
+  taskId         String?
+  createdAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  workspace    Workspace?   @relation(fields: [workspaceId], references: [id], onDelete: SetNull)
+  agent        Agent?       @relation(fields: [agentId], references: [id], onDelete: SetNull)
+  task         Task?        @relation(fields: [taskId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId])
+  @@index([workspaceId])
+  @@index([agentId])
+  @@index([taskId])
+  @@index([level])
+  @@index([source])
+  @@index([createdAt])
+}
+
+model Notification {
+  id             String   @id @default(cuid())
+  type           String
+  title          String
+  message        String?  @db.Text
+  severity       Severity @default(LOW)
+  read           Boolean  @default(false)
+  userId         String?
+  organizationId String
+  workspaceId    String?
+  link           String?
+  createdAt      DateTime @default(now())
+
+  user         User?        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  workspace    Workspace?   @relation(fields: [workspaceId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([organizationId])
+  @@index([workspaceId])
+  @@index([read])
+  @@index([severity])
+  @@index([createdAt])
+}
+
+model AgentHeartbeat {
+  id              String      @id @default(cuid())
+  agentId         String
+  status          AgentStatus
+  cpuUsage        Float?
+  memoryUsage     Float?
+  activeTaskCount Int         @default(0)
+  metadata        Json?
+  createdAt       DateTime    @default(now())
+
+  agent Agent @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@index([agentId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+// ─────────────────────────────────────────────
+// Knowledge & Templates
+// ─────────────────────────────────────────────
+
+model MemoryEntry {
+  id             String     @id @default(cuid())
+  title          String
+  content        String     @db.Text
+  type           MemoryType
+  visibility     Visibility @default(PRIVATE)
+  organizationId String
+  workspaceId    String?
+  departmentId   String?
+  ownerAgentId   String?
+  tags           String[]
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  workspace    Workspace?   @relation(fields: [workspaceId], references: [id], onDelete: SetNull)
+  department   Department?  @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  ownerAgent   Agent?       @relation("MemoryOwnerAgent", fields: [ownerAgentId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId])
+  @@index([workspaceId])
+  @@index([departmentId])
+  @@index([ownerAgentId])
+  @@index([type])
+  @@index([visibility])
+}
+
+model SOPDocument {
+  id             String     @id @default(cuid())
+  title          String
+  content        String     @db.Text
+  version        Int        @default(1)
+  visibility     Visibility @default(WORKSPACE)
+  organizationId String
+  workspaceId    String?
+  departmentId   String?
+  tags           String[]
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  workspace    Workspace?   @relation(fields: [workspaceId], references: [id], onDelete: SetNull)
+  department   Department?  @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId])
+  @@index([workspaceId])
+  @@index([departmentId])
+  @@index([visibility])
+}
+
+model PromptTemplate {
+  id             String     @id @default(cuid())
+  name           String
+  description    String?
+  template       String     @db.Text
+  variables      String[]
+  visibility     Visibility @default(WORKSPACE)
+  organizationId String
+  workspaceId    String?
+  tags           String[]
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  workspace    Workspace?   @relation(fields: [workspaceId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId])
+  @@index([workspaceId])
+  @@index([visibility])
+}
+
+// ─────────────────────────────────────────────
+// Artifacts & Integrations
+// ─────────────────────────────────────────────
+
+model Artifact {
+  id             String       @id @default(cuid())
+  name           String
+  description    String?
+  type           ArtifactType
+  fileUrl        String?
+  content        String?      @db.Text
+  visibility     Visibility   @default(WORKSPACE)
+  organizationId String
+  workspaceId    String?
+  taskId         String?
+  projectId      String?
+  agentId        String?
+  mimeType       String?
+  sizeBytes      Int?
+  tags           String[]
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  workspace    Workspace?   @relation(fields: [workspaceId], references: [id], onDelete: SetNull)
+  task         Task?        @relation(fields: [taskId], references: [id], onDelete: SetNull)
+  project      Project?     @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  agent        Agent?       @relation(fields: [agentId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId])
+  @@index([workspaceId])
+  @@index([taskId])
+  @@index([projectId])
+  @@index([agentId])
+  @@index([type])
+  @@index([visibility])
+}
+
+model Integration {
+  id             String            @id @default(cuid())
+  name           String
+  type           IntegrationType
+  config         Json
+  status         IntegrationStatus @default(ACTIVE)
+  organizationId String
+  workspaceId    String?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  workspace    Workspace?   @relation(fields: [workspaceId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId])
+  @@index([workspaceId])
+  @@index([type])
+  @@index([status])
+}
+
+model ModuleInstallation {
+  id             String       @id @default(cuid())
+  moduleType     String
+  workspaceId    String
+  organizationId String
+  config         Json?
+  status         ModuleStatus @default(ACTIVE)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  workspace    Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([moduleType, workspaceId])
+  @@index([organizationId])
+  @@index([workspaceId])
+  @@index([status])
+}
+
+// ─────────────────────────────────────────────
+// Cost Tracking
+// ─────────────────────────────────────────────
+
+model CostRecord {
+  id             String   @id @default(cuid())
+  agentId        String?
+  taskId         String?
+  taskRunId      String?
+  workspaceId    String?
+  organizationId String
+  provider       String
+  model          String
+  tokensInput    Int
+  tokensOutput   Int
+  cost           Float
+  createdAt      DateTime @default(now())
+
+  agent        Agent?       @relation(fields: [agentId], references: [id], onDelete: SetNull)
+  task         Task?        @relation(fields: [taskId], references: [id], onDelete: SetNull)
+  taskRun      TaskRun?     @relation(fields: [taskRunId], references: [id], onDelete: SetNull)
+  workspace    Workspace?   @relation(fields: [workspaceId], references: [id], onDelete: SetNull)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([workspaceId])
+  @@index([agentId])
+  @@index([taskId])
+  @@index([taskRunId])
+  @@index([provider])
+  @@index([createdAt])
+}
+
+// ─────────────────────────────────────────────
+// Real Estate Content Module
+// ─────────────────────────────────────────────
+
+model Listing {
+  id              String        @id @default(cuid())
+  mlsNumber       String?
+  address         String
+  city            String
+  state           String
+  zipCode         String
+  price           Float?
+  status          ListingStatus @default(NEW)
+  propertyType    String?
+  bedrooms        Int?
+  bathrooms       Float?
+  sqft            Int?
+  description     String?       @db.Text
+  organizationId  String
+  workspaceId     String
+  assignedAgentId String?
+  tags            String[]
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  organization  Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  workspace     Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  assignedAgent Agent?       @relation("ListingAssignedAgent", fields: [assignedAgentId], references: [id], onDelete: SetNull)
+
+  mediaAssets MediaAsset[]
+  postDrafts  PostDraft[]
+
+  @@index([organizationId])
+  @@index([workspaceId])
+  @@index([assignedAgentId])
+  @@index([status])
+  @@index([city, state])
+  @@index([mlsNumber])
+}
+
+model MediaAsset {
+  id             String         @id @default(cuid())
+  listingId      String
+  name           String
+  type           MediaAssetType
+  fileUrl        String
+  thumbnailUrl   String?
+  mimeType       String?
+  sizeBytes      Int?
+  sortOrder      Int            @default(0)
+  organizationId String
+  workspaceId    String
+  createdAt      DateTime       @default(now())
+
+  listing      Listing      @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  workspace    Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([listingId])
+  @@index([organizationId])
+  @@index([workspaceId])
+  @@index([type])
+}
+
+model PostDraft {
+  id               String          @id @default(cuid())
+  listingId        String?
+  title            String
+  content          String          @db.Text
+  platform         PostPlatform
+  status           PostDraftStatus @default(DRAFT)
+  scheduledAt      DateTime?
+  organizationId   String
+  workspaceId      String
+  createdByAgentId String?
+  reviewedByUserId String?
+  tags             String[]
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  listing        Listing?      @relation(fields: [listingId], references: [id], onDelete: SetNull)
+  organization   Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  workspace      Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdByAgent Agent?        @relation("PostCreatedByAgent", fields: [createdByAgentId], references: [id], onDelete: SetNull)
+  reviewedByUser User?         @relation("PostReviewedByUser", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
+
+  publishedPosts PublishedPost[]
+  shareTasks     ShareTask[]
+
+  @@index([organizationId])
+  @@index([workspaceId])
+  @@index([listingId])
+  @@index([createdByAgentId])
+  @@index([reviewedByUserId])
+  @@index([status])
+  @@index([platform])
+  @@index([scheduledAt])
+}
+
+model PublishedPost {
+  id             String   @id @default(cuid())
+  postDraftId    String
+  platform       String
+  externalPostId String?
+  url            String?
+  publishedAt    DateTime
+  metrics        Json?
+  organizationId String
+  workspaceId    String
+  createdAt      DateTime @default(now())
+
+  postDraft    PostDraft    @relation(fields: [postDraftId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  workspace    Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  shareTasks ShareTask[]
+
+  @@index([postDraftId])
+  @@index([organizationId])
+  @@index([workspaceId])
+  @@index([platform])
+  @@index([publishedAt])
+}
+
+model ShareTask {
+  id              String          @id @default(cuid())
+  postDraftId     String?
+  publishedPostId String?
+  targetGroup     String
+  platform        String          @default("facebook")
+  status          ShareTaskStatus @default(PENDING)
+  sharedAt        DateTime?
+  organizationId  String
+  workspaceId     String
+  assignedAgentId String?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  postDraft     PostDraft?     @relation(fields: [postDraftId], references: [id], onDelete: SetNull)
+  publishedPost PublishedPost? @relation(fields: [publishedPostId], references: [id], onDelete: SetNull)
+  organization  Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  workspace     Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  assignedAgent Agent?         @relation("ShareTaskAssignedAgent", fields: [assignedAgentId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId])
+  @@index([workspaceId])
+  @@index([postDraftId])
+  @@index([publishedPostId])
+  @@index([assignedAgentId])
+  @@index([status])
+}
+
+// ─────────────────────────────────────────────
+// Billing & Accounts
+// ─────────────────────────────────────────────
+
+model InvoiceSnapshot {
+  id            String        @id @default(cuid())
+  customerName  String
+  customerEmail String?
+  invoiceNumber String?
+  amount        Float
+  status        InvoiceStatus @default(DRAFT)
+  dueDate       DateTime?
+  paidAt        DateTime?
+  items         Json?
+  source        String        @default("manual")
+  organizationId String
+  workspaceId    String
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  workspace    Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([workspaceId])
+  @@index([status])
+  @@index([dueDate])
+  @@index([invoiceNumber])
+}
+
+model IntegrationAccount {
+  id             String                   @id @default(cuid())
+  platform       String
+  accountName    String
+  accountId      String?
+  accessToken    String?                  @db.Text
+  refreshToken   String?                  @db.Text
+  tokenExpiresAt DateTime?
+  metadata       Json?
+  organizationId String
+  workspaceId    String
+  status         IntegrationAccountStatus @default(ACTIVE)
+  createdAt      DateTime                 @default(now())
+  updatedAt      DateTime                 @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  workspace    Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([workspaceId])
+  @@index([platform])
+  @@index([status])
+}

@@ -1,3 +1,15 @@
+# lil_Bin | AI Company OS
+
+Next.js dashboard + **authenticated internal APIs** (`/api/v1`) for AI orchestration.
+
+## Tài liệu cho AI agent (Lil_Bin)
+
+Toàn bộ bối cảnh vận hành, API, runbook và bản đồ code nằm tại:
+
+**[`docs/lilbin/`](./docs/lilbin/README.md)** — bắt đầu từ `README.md` trong thư mục đó.
+
+---
+
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
 ## Getting Started
