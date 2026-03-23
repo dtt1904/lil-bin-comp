@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import Script from "next/script";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -32,7 +33,13 @@ export default function RootLayout({
       className={`dark ${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="h-full bg-background text-foreground">
-        data-lilbin-render-now={renderNowMs}
+        <Script
+          id="lilbin-render-now"
+          strategy="beforeInteractive"
+          dangerouslySetInnerHTML={{
+            __html: `window.__LILBIN_RENDER_NOW__=${renderNowMs};`,
+          }}
+        />
         {children}
       </body>
     </html>

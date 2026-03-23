@@ -4,14 +4,6 @@ export function getRenderNowMs(): number {
     const v = w.__LILBIN_RENDER_NOW__;
     if (typeof v === "number") return v;
   }
-  if (typeof document !== "undefined") {
-    const el = document.body;
-    const v = (el.dataset as any)?.lilbinRenderNow;
-    if (typeof v === "string") {
-      const parsed = Number(v);
-      if (Number.isFinite(parsed)) return parsed;
-    }
-  }
   const g = globalThis as any;
   const v = g.__LILBIN_RENDER_NOW__;
   if (typeof v === "number") return v;
