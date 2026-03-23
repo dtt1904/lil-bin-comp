@@ -22,12 +22,19 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const renderNowMs = Date.now();
+  // Used to make client/server relative-time rendering deterministic.
+  (globalThis as any).__LILBIN_RENDER_NOW__ = renderNowMs;
+
   return (
     <html
       lang="en"
       className={`dark ${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="h-full bg-background text-foreground">{children}</body>
+      <body className="h-full bg-background text-foreground">
+        data-lilbin-render-now={renderNowMs}
+        {children}
+      </body>
     </html>
   );
 }

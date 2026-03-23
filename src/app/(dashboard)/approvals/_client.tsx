@@ -18,6 +18,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
   formatRelativeTime,
   getAgentAvatarColor,
+  getRenderNowMs,
   getSeverityColor,
 } from "@/lib/helpers";
 import { cn } from "@/lib/utils";
@@ -94,8 +95,12 @@ export function ApprovalsPageClient({ approvals, workspaces }: ApprovalsClientPr
 
   const pendingCount = approvals.filter((a) => a.status === "PENDING").length;
 
-  const today = new Date();
-  const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const now = new Date(getRenderNowMs());
+  const todayStart = new Date(
+    now.getFullYear(),
+    now.getMonth(),
+    now.getDate()
+  );
 
   const approvedToday = approvals.filter(
     (a) =>

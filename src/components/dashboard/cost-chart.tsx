@@ -11,7 +11,7 @@ import {
   YAxis,
 } from "recharts";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { formatCurrency } from "@/lib/helpers";
+import { formatCurrency, getRenderNowMs } from "@/lib/helpers";
 
 interface CostRecordRow {
   id: string;
@@ -27,9 +27,10 @@ export function CostChart({ costRecords }: CostChartProps) {
   const chartData = useMemo(() => {
     const DAYS = 7;
     const data: { date: string; cost: number }[] = [];
+    const base = new Date(getRenderNowMs());
 
     for (let i = DAYS - 1; i >= 0; i--) {
-      const d = new Date();
+      const d = new Date(base.getTime());
       d.setDate(d.getDate() - i);
       const dayStart = new Date(d.getFullYear(), d.getMonth(), d.getDate());
       const dayEnd = new Date(dayStart.getTime() + 86_400_000);
@@ -45,6 +46,7 @@ export function CostChart({ costRecords }: CostChartProps) {
         date: d.toLocaleDateString("en-US", {
           month: "short",
           day: "numeric",
+          timeZone: "UTC",
         }),
         cost: Number(total.toFixed(3)),
       });

@@ -4,6 +4,7 @@ import {
   getStatusColor,
   getPriorityColor,
   getAgentAvatarColor,
+  getRenderNowMs,
 } from "@/lib/helpers";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import {
@@ -104,7 +105,7 @@ export function ActiveTasksTable({ tasks }: ActiveTasksTableProps) {
                   {task.dueDate ? (
                     <span
                       className={
-                        new Date(task.dueDate) < new Date()
+                        new Date(task.dueDate) < new Date(getRenderNowMs())
                           ? "text-red-400"
                           : "text-muted-foreground"
                       }
@@ -112,6 +113,7 @@ export function ActiveTasksTable({ tasks }: ActiveTasksTableProps) {
                       {new Date(task.dueDate).toLocaleDateString("en-US", {
                         month: "short",
                         day: "numeric",
+                        timeZone: "UTC",
                       })}
                     </span>
                   ) : (

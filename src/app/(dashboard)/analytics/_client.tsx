@@ -40,7 +40,11 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { StatCard } from "@/components/dashboard/stat-card";
-import { formatCurrency, formatRelativeTime } from "@/lib/helpers";
+import {
+  formatCurrency,
+  formatRelativeTime,
+  getRenderNowMs,
+} from "@/lib/helpers";
 import { cn } from "@/lib/utils";
 
 const CHART_COLORS = [
@@ -133,7 +137,7 @@ export function AnalyticsPageClient({
   );
 
   const thisMonthSpend = useMemo(() => {
-    const now = new Date();
+    const now = new Date(getRenderNowMs());
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
     return costRecords
       .filter((c) => new Date(c.createdAt) >= monthStart)
@@ -152,8 +156,9 @@ export function AnalyticsPageClient({
   const dailyCostData = useMemo(() => {
     const DAYS = 14;
     const data: { date: string; cost: number }[] = [];
+    const base = new Date(getRenderNowMs());
     for (let i = DAYS - 1; i >= 0; i--) {
-      const d = new Date();
+      const d = new Date(base.getTime());
       d.setDate(d.getDate() - i);
       const dayStart = new Date(d.getFullYear(), d.getMonth(), d.getDate());
       const dayEnd = new Date(dayStart.getTime() + 86_400_000);
@@ -167,6 +172,7 @@ export function AnalyticsPageClient({
         date: d.toLocaleDateString("en-US", {
           month: "short",
           day: "numeric",
+          timeZone: "UTC",
         }),
         cost: Number(total.toFixed(4)),
       });

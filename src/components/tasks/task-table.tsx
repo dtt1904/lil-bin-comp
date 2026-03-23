@@ -8,6 +8,7 @@ import {
   getPriorityColor,
   getAgentAvatarColor,
   formatRelativeTime,
+  getRenderNowMs,
 } from "@/lib/helpers";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -102,7 +103,7 @@ export function TaskTable({ tasks }: { tasks: SerializedTask[] }) {
               ? { name: task.assigneeAgent.name, initial: task.assigneeAgent.name[0] }
               : null;
             const dueDate = task.dueDate ? new Date(task.dueDate) : null;
-            const isOverdue = dueDate && dueDate < new Date();
+            const isOverdue = dueDate && dueDate < new Date(getRenderNowMs());
 
             return (
               <TableRow key={task.id} className="group">
@@ -161,7 +162,11 @@ export function TaskTable({ tasks }: { tasks: SerializedTask[] }) {
                 <TableCell>
                   {dueDate ? (
                     <span className={cn("text-sm", isOverdue ? "font-medium text-red-400" : "text-muted-foreground")}>
-                      {dueDate.toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                      {dueDate.toLocaleDateString("en-US", {
+                        month: "short",
+                        day: "numeric",
+                        timeZone: "UTC",
+                      })}
                     </span>
                   ) : (
                     <span className="text-sm text-muted-foreground">—</span>

@@ -10,7 +10,11 @@ import {
   X,
   CreditCard,
 } from "lucide-react";
-import { formatCurrency, formatRelativeTime } from "@/lib/helpers";
+import {
+  formatCurrency,
+  formatRelativeTime,
+  getRenderNowMs,
+} from "@/lib/helpers";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
@@ -132,7 +136,7 @@ export function InvoicesPageClient({
     0
   );
 
-  const now = new Date();
+  const now = new Date(getRenderNowMs());
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
   const paidThisMonth = invoices
     .filter(

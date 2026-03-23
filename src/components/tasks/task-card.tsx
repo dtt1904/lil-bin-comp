@@ -7,6 +7,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
   getPriorityColor,
   getAgentAvatarColor,
+  getRenderNowMs,
 } from "@/lib/helpers";
 import { cn } from "@/lib/utils";
 
@@ -33,7 +34,7 @@ export function TaskCard({ task }: { task: SerializedTask }) {
     ? { name: task.assigneeAgent.name, initial: task.assigneeAgent.name[0] }
     : null;
   const dueDate = task.dueDate ? new Date(task.dueDate) : null;
-  const isOverdue = dueDate && dueDate < new Date();
+  const isOverdue = dueDate && dueDate < new Date(getRenderNowMs());
 
   return (
     <Link href={`/tasks/${task.id}`} className="block">
@@ -77,7 +78,11 @@ export function TaskCard({ task }: { task: SerializedTask }) {
               )}
             >
               {isOverdue ? <Clock className="size-3" /> : <Calendar className="size-3" />}
-              {dueDate.toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+              {dueDate.toLocaleDateString("en-US", {
+                month: "short",
+                day: "numeric",
+                timeZone: "UTC",
+              })}
             </div>
           ) : null}
         </div>
