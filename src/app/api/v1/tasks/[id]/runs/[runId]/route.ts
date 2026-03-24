@@ -51,12 +51,14 @@ export async function PATCH(
 
       const costVal = body.costUsd ?? body.cost;
       if (costVal && costVal > 0) {
-        const agent = await prisma.agent.findUnique({ where: { id: run.agentId } });
+        const agent = run.agentId
+          ? await prisma.agent.findUnique({ where: { id: run.agentId } })
+          : null;
         await prisma.costRecord.create({
           data: {
             organizationId: task.organizationId,
             workspaceId: task.workspaceId,
-            agentId: run.agentId,
+            agentId: run.agentId ?? undefined,
             taskId: id,
             taskRunId: runId,
             model: agent?.model ?? "unknown",

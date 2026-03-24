@@ -8,6 +8,7 @@ import { AgentStatusPanel } from "@/components/dashboard/agent-status-panel";
 import { PendingApprovals } from "@/components/dashboard/pending-approvals";
 import { RecentActivity } from "@/components/dashboard/recent-activity";
 import { CostChart } from "@/components/dashboard/cost-chart";
+import { RunnerActivity } from "@/components/dashboard/runner-activity";
 
 export default async function CommandCenter() {
   const today = new Date();
@@ -49,7 +50,9 @@ export default async function CommandCenter() {
     }),
   ]);
 
-  const [agents, recentLogs, costRecords] = await Promise.all([
+  const oneHourAgo = new Date(Date.now() - 3_600_000);
+
+  const [agents, recentLogs, costRecords, recentRuns, runsCompletedLastHour, runsFailedLastHour] = await Promise.all([
     prisma.agent.findMany({
       orderBy: { name: "asc" },
       include: {
@@ -68,6 +71,25 @@ export default async function CommandCenter() {
     prisma.costRecord.findMany({
       where: { createdAt: { gte: new Date(Date.now() - 7 * 86_400_000) } },
       select: { id: true, cost: true, createdAt: true },
+    }),
+    prisma.taskRun.findMany({
+      orderBy: { startedAt: "desc" },
+      take: 8,
+      select: {
+        id: true,
+        taskId: true,
+        runnerId: true,
+        status: true,
+        error: true,
+        startedAt: true,
+        completedAt: true,
+      },
+    }),
+    prisma.taskRun.count({
+      where: { status: "COMPLETED", completedAt: { gte: oneHourAgo } },
+    }),
+    prisma.taskRun.count({
+      where: { status: { in: ["FAILED", "CANCELLED"] }, completedAt: { gte: oneHourAgo } },
     }),
   ]);
 
@@ -114,6 +136,16 @@ export default async function CommandCenter() {
     id: c.id,
     cost: c.cost,
     createdAt: c.createdAt.toISOString(),
+  }));
+
+  const serializedRuns = recentRuns.map((r) => ({
+    id: r.id,
+    taskId: r.taskId,
+    runnerId: r.runnerId,
+    status: r.status,
+    error: r.error,
+    startedAt: r.startedAt.toISOString(),
+    completedAt: r.completedAt?.toISOString() ?? null,
   }));
 
   return (
@@ -173,7 +205,14 @@ export default async function CommandCenter() {
           </div>
         </div>
 
-        <CostChart costRecords={serializedCosts} />
+        <div className="mb-6 grid grid-cols-1 gap-4 sm:gap-6 lg:grid-cols-2">
+          <CostChart costRecords={serializedCosts} />
+          <RunnerActivity
+            runs={serializedRuns}
+            completedLastHour={runsCompletedLastHour}
+            failedLastHour={runsFailedLastHour}
+          />
+        </div>
       </div>
     </div>
   );

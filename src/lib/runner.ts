@@ -126,18 +126,61 @@ export async function claimNextTask(
 }
 
 // ---------------------------------------------------------------------------
-// Complete / Fail helpers
+// TaskRun lifecycle: create at start, finalize on complete/fail
 // ---------------------------------------------------------------------------
 
-export async function completeTask(
+async function createRun(
   prisma: PrismaClient,
   task: ClaimedTask,
+  config: RunnerConfig
+): Promise<string> {
+  const run = await prisma.taskRun.create({
+    data: {
+      taskId: task.id,
+      agentId: task.assigneeAgentId ?? undefined,
+      runnerId: config.runnerId,
+      status: TaskRunStatus.STARTED,
+      input: { labels: task.labels, retryCount: task.retryCount },
+    },
+  });
+
+  await prisma.logEvent.create({
+    data: {
+      organizationId: task.organizationId,
+      workspaceId: task.workspaceId,
+      taskId: task.id,
+      agentId: task.assigneeAgentId,
+      level: LogLevel.INFO,
+      source: "runner",
+      message: `Run ${run.id} started by ${config.runnerId} [attempt ${task.retryCount + 1}/${task.maxRetries + 1}]`,
+    },
+  });
+
+  return run.id;
+}
+
+async function completeRun(
+  prisma: PrismaClient,
+  runId: string,
+  task: ClaimedTask,
+  config: RunnerConfig,
   output: unknown,
   opts?: { tokensUsed?: number; cost?: number }
 ) {
-  const agentId = task.assigneeAgentId;
+  const now = new Date();
 
   await prisma.$transaction(async (tx) => {
+    const run = await tx.taskRun.update({
+      where: { id: runId },
+      data: {
+        status: TaskRunStatus.COMPLETED,
+        output: output as any,
+        tokensUsed: opts?.tokensUsed,
+        cost: opts?.cost,
+        completedAt: now,
+      },
+    });
+
     await tx.task.update({
       where: { id: task.id },
       data: {
@@ -148,78 +191,67 @@ export async function completeTask(
       },
     });
 
-    if (agentId) {
-      await tx.taskRun.create({
-        data: {
-          taskId: task.id,
-          agentId,
-          status: TaskRunStatus.COMPLETED,
-          output: output as any,
-          tokensUsed: opts?.tokensUsed,
-          cost: opts?.cost,
-          completedAt: new Date(),
-        },
-      });
-    }
+    const durationMs = now.getTime() - run.startedAt.getTime();
 
     await tx.logEvent.create({
       data: {
         organizationId: task.organizationId,
         workspaceId: task.workspaceId,
         taskId: task.id,
-        agentId,
+        agentId: task.assigneeAgentId,
         level: LogLevel.INFO,
         source: "runner",
-        message: `Task completed by runner`,
+        message: `Run ${runId} completed in ${durationMs}ms by ${config.runnerId}`,
       },
     });
   });
 }
 
-export async function failTask(
+async function failRun(
   prisma: PrismaClient,
+  runId: string,
   task: ClaimedTask,
-  error: string,
-  config: RunnerConfig
+  config: RunnerConfig,
+  error: string
 ) {
+  const now = new Date();
   const canRetry = task.retryCount < task.maxRetries;
-  const nextStatus = canRetry ? TaskStatus.QUEUED : TaskStatus.FAILED;
-  const agentId = task.assigneeAgentId;
+  const nextTaskStatus = canRetry ? TaskStatus.QUEUED : TaskStatus.FAILED;
 
   await prisma.$transaction(async (tx) => {
+    const run = await tx.taskRun.update({
+      where: { id: runId },
+      data: {
+        status: TaskRunStatus.FAILED,
+        error,
+        completedAt: now,
+      },
+    });
+
     await tx.task.update({
       where: { id: task.id },
       data: {
-        status: nextStatus,
+        status: nextTaskStatus,
         lockedBy: null,
         lockedAt: null,
         retryCount: canRetry ? task.retryCount + 1 : task.retryCount,
       },
     });
 
-    if (agentId) {
-      await tx.taskRun.create({
-        data: {
-          taskId: task.id,
-          agentId,
-          status: TaskRunStatus.FAILED,
-          error,
-          completedAt: new Date(),
-        },
-      });
-    }
+    const durationMs = now.getTime() - run.startedAt.getTime();
+    const retryNote = canRetry
+      ? ` — re-queued for retry ${task.retryCount + 1}/${task.maxRetries}`
+      : ` — no retries left, marked FAILED`;
 
     await tx.logEvent.create({
       data: {
         organizationId: task.organizationId,
         workspaceId: task.workspaceId,
         taskId: task.id,
-        agentId,
+        agentId: task.assigneeAgentId,
         level: LogLevel.ERROR,
         source: "runner",
-        message: canRetry
-          ? `Task failed (retry ${task.retryCount + 1}/${task.maxRetries}): ${error}`
-          : `Task failed permanently after ${task.retryCount} retries: ${error}`,
+        message: `Run ${runId} failed after ${durationMs}ms by ${config.runnerId}: ${error}${retryNote}`,
       },
     });
   });
@@ -245,26 +277,62 @@ export async function recoverStaleTasks(
 
   for (const task of stale) {
     const canRetry = task.retryCount < task.maxRetries;
+    const nextStatus = canRetry ? TaskStatus.QUEUED : TaskStatus.FAILED;
 
-    await prisma.task.update({
-      where: { id: task.id },
-      data: {
-        status: canRetry ? TaskStatus.QUEUED : TaskStatus.FAILED,
-        lockedBy: null,
-        lockedAt: null,
-        retryCount: canRetry ? task.retryCount + 1 : task.retryCount,
-      },
-    });
+    await prisma.$transaction(async (tx) => {
+      await tx.task.update({
+        where: { id: task.id },
+        data: {
+          status: nextStatus,
+          lockedBy: null,
+          lockedAt: null,
+          retryCount: canRetry ? task.retryCount + 1 : task.retryCount,
+        },
+      });
 
-    await prisma.logEvent.create({
-      data: {
-        organizationId: task.organizationId,
-        workspaceId: task.workspaceId,
-        taskId: task.id,
-        level: LogLevel.WARN,
-        source: "runner",
-        message: `Stale lock recovered (locked by ${task.lockedBy} at ${task.lockedAt?.toISOString()})${canRetry ? " — re-queued" : " — marked FAILED"}`,
-      },
+      // Find any open STARTED/RUNNING run for this task and mark it CANCELLED
+      const openRuns = await tx.taskRun.findMany({
+        where: {
+          taskId: task.id,
+          status: { in: [TaskRunStatus.STARTED, TaskRunStatus.RUNNING] },
+        },
+      });
+
+      for (const run of openRuns) {
+        await tx.taskRun.update({
+          where: { id: run.id },
+          data: {
+            status: TaskRunStatus.CANCELLED,
+            error: `Stale lock recovery — locked by ${task.lockedBy} since ${task.lockedAt?.toISOString()}`,
+            completedAt: new Date(),
+          },
+        });
+      }
+
+      // If no open runs existed, create a CANCELLED run as evidence
+      if (openRuns.length === 0) {
+        await tx.taskRun.create({
+          data: {
+            taskId: task.id,
+            agentId: task.assigneeAgentId ?? undefined,
+            runnerId: task.lockedBy,
+            status: TaskRunStatus.CANCELLED,
+            error: `Stale lock recovery — no run record found, locked by ${task.lockedBy} since ${task.lockedAt?.toISOString()}`,
+            completedAt: new Date(),
+          },
+        });
+      }
+
+      await tx.logEvent.create({
+        data: {
+          organizationId: task.organizationId,
+          workspaceId: task.workspaceId,
+          taskId: task.id,
+          level: LogLevel.WARN,
+          source: "runner",
+          message: `Stale lock recovered by ${config.runnerId} (was locked by ${task.lockedBy} since ${task.lockedAt?.toISOString()}, ${openRuns.length} open run(s) cancelled)${canRetry ? " — re-queued" : " — marked FAILED"}`,
+        },
+      });
     });
   }
 
@@ -280,23 +348,38 @@ async function executeTask(
   task: ClaimedTask,
   config: RunnerConfig
 ) {
+  // Always create a TaskRun record first — this is the source of truth
+  const runId = await createRun(prisma, task, config);
+
   const label = task.labels.find((l) => executors.has(l));
   const executor = label ? executors.get(label)! : executors.get("default");
 
   if (!executor) {
-    await failTask(prisma, task, `No executor found for labels: [${task.labels.join(", ")}]`, config);
+    await failRun(
+      prisma,
+      runId,
+      task,
+      config,
+      `No executor found for labels: [${task.labels.join(", ")}]`
+    );
     return;
   }
 
+  // Mark run as actively processing
+  await prisma.taskRun.update({
+    where: { id: runId },
+    data: { status: TaskRunStatus.RUNNING },
+  });
+
   try {
     const result = await executor(task, prisma);
-    await completeTask(prisma, task, result.output, {
+    await completeRun(prisma, runId, task, config, result.output, {
       tokensUsed: result.tokensUsed,
       cost: result.cost,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    await failTask(prisma, task, message, config);
+    await failRun(prisma, runId, task, config, message);
   }
 }
 
@@ -315,7 +398,7 @@ export async function runLoop(userConfig?: Partial<RunnerConfig>) {
   let cycleCount = 0;
 
   const shutdown = () => {
-    console.log(`\n[runner] Shutting down...`);
+    console.log(`\n[runner] Shutting down ${config.runnerId}...`);
     process.exit(0);
   };
   process.on("SIGINT", shutdown);
@@ -325,7 +408,6 @@ export async function runLoop(userConfig?: Partial<RunnerConfig>) {
     try {
       cycleCount++;
 
-      // Recover stale tasks every 12 cycles (~60s at 5s poll)
       if (cycleCount % 12 === 0) {
         const recovered = await recoverStaleTasks(prisma, config);
         if (recovered > 0) {
@@ -336,10 +418,11 @@ export async function runLoop(userConfig?: Partial<RunnerConfig>) {
       const task = await claimNextTask(prisma, config);
 
       if (task) {
-        console.log(`[runner] Claimed: "${task.title}" (${task.id})`);
+        const t0 = Date.now();
+        console.log(`[runner] Claimed: "${task.title}" (${task.id}) [attempt ${task.retryCount + 1}/${task.maxRetries + 1}]`);
         await executeTask(prisma, task, config);
-        console.log(`[runner] Done: "${task.title}"`);
-        continue; // immediately check for more work
+        console.log(`[runner] Done: "${task.title}" in ${Date.now() - t0}ms`);
+        continue;
       }
     } catch (err) {
       console.error(`[runner] Cycle error:`, err instanceof Error ? err.message : err);

@@ -486,7 +486,8 @@ model TaskDependency {
 model TaskRun {
   id          String        @id @default(cuid())
   taskId      String
-  agentId     String
+  agentId     String?
+  runnerId    String?
   status      TaskRunStatus @default(STARTED)
   input       Json?
   output      Json?
@@ -497,8 +498,8 @@ model TaskRun {
   completedAt DateTime?
   createdAt   DateTime      @default(now())
 
-  task  Task  @relation(fields: [taskId], references: [id], onDelete: Cascade)
-  agent Agent @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  task  Task   @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  agent Agent? @relation(fields: [agentId], references: [id], onDelete: SetNull)
 
   approvals   Approval[]
   costRecords CostRecord[]
