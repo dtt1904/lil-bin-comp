@@ -10,12 +10,15 @@
     "db:generate": "npx prisma generate",
     "db:migrate": "npx prisma migrate dev",
     "db:push": "npx prisma migrate deploy",
-    "db:seed": "npx tsx prisma/seed.ts",
-    "db:reset": "npx prisma migrate reset --force",
+    "db:seed": "node scripts/require-destructive-ops.mjs db:seed && npx tsx prisma/seed.ts",
+    "db:seed:unsafe": "npx tsx prisma/seed.ts",
+    "db:reset": "node scripts/require-destructive-ops.mjs db:reset && npx prisma migrate reset --force",
+    "db:reset:unsafe": "npx prisma migrate reset --force",
     "db:studio": "npx prisma studio",
     "runner": "npx tsx scripts/run-worker.ts",
     "runner:mac": "npx tsx scripts/run-worker.ts --target MAC_MINI",
-    "setup": "docker compose up -d && sleep 2 && npm run db:generate && npm run db:migrate && npm run db:seed"
+    "setup": "docker compose up -d && sleep 2 && npm run db:generate && npm run db:migrate",
+    "setup:demo": "docker compose up -d && sleep 2 && npm run db:generate && npm run db:migrate && ALLOW_DESTRUCTIVE_DB_OPS=true npm run db:seed:unsafe"
   },
   "prisma": {
     "seed": "npx tsx prisma/seed.ts"

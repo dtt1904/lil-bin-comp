@@ -9,7 +9,7 @@
 ## Khởi tạo nhanh
 
 ```bash
-npm run setup          # install + generate + migrate + seed (nếu có script)
+npm run setup          # install + generate + migrate (safe, không seed)
 ```
 
 Hoặc từng bước:
@@ -19,7 +19,8 @@ docker compose up -d   # khởi động PostgreSQL
 npm install
 npm run db:generate
 npm run db:migrate -- --name init
-npm run db:seed
+# Chỉ seed demo khi thực sự cần (destructive):
+ALLOW_DESTRUCTIVE_DB_OPS=true npm run db:seed:unsafe
 ```
 
 ## Chạy dev
@@ -39,6 +40,7 @@ File `.env` (không commit secret production):
 | `DATABASE_URL` | Chuỗi kết nối PostgreSQL, vd: `postgresql://lilbin:lilbin_secret@localhost:5432/lilbin_db` |
 | `INTERNAL_API_KEY` | Khóa cho mọi request API nội bộ (header `x-api-key`). **Bắt buộc** ở production. Dev fallback: `lilbin-dev-key-2024`. |
 | `NODE_ENV` | `production` hoặc `development`. |
+| `ALLOW_DESTRUCTIVE_DB_OPS` | Mặc định `false`. Đặt `true` chỉ khi cần thao tác phá dữ liệu (seed/reset). |
 | `x-organization-id` (header) | Tùy chọn; mặc định logic dùng `org-1`. |
 
 ## Gọi API từ Lil_Bin
@@ -75,16 +77,16 @@ npm run db:migrate -- --name mo_ta_migration
 ### Seed dữ liệu mẫu
 
 ```bash
-npm run db:seed
+ALLOW_DESTRUCTIVE_DB_OPS=true npm run db:seed
 ```
 
 ### Reset database (xóa toàn bộ, tạo lại)
 
 ```bash
-npm run db:reset
+ALLOW_DESTRUCTIVE_DB_OPS=true npm run db:reset
 ```
 
-> **Cảnh báo:** Lệnh này xóa toàn bộ dữ liệu và chạy lại migrations + seed.
+> **Cảnh báo:** Lệnh này xóa toàn bộ dữ liệu.
 
 ### Xem database trực quan
 
@@ -98,9 +100,12 @@ npm run db:studio    # mở Prisma Studio tại port 5555
 
 ```bash
 curl -s -X POST -H "x-api-key: $API_KEY" -H "Content-Type: application/json" \
+  -H "x-confirm-destructive: RESET_DB" \
   -d '{"confirm":true}' \
   "$BASE_URL/api/v1/system/seed"
 ```
+
+Endpoint trên chỉ hoạt động khi `ALLOW_DESTRUCTIVE_DB_OPS=true`.
 
 ## Build production
 

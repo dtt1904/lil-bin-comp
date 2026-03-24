@@ -6,6 +6,8 @@ import {
   errorResponse,
 } from "@/lib/api-auth";
 
+const destructiveOpsEnabled = process.env.ALLOW_DESTRUCTIVE_DB_OPS === "true";
+
 export async function POST(req: NextRequest) {
   const auth = authenticateRequest(req);
   if (!auth.ok) return auth.response;
@@ -20,6 +22,21 @@ export async function POST(req: NextRequest) {
   if (body.confirm !== true) {
     return errorResponse(
       "Must send { confirm: true } to reset database",
+      400
+    );
+  }
+
+  if (!destructiveOpsEnabled) {
+    return errorResponse(
+      "Destructive DB operations are disabled. Set ALLOW_DESTRUCTIVE_DB_OPS=true to enable /api/v1/system/seed.",
+      403
+    );
+  }
+
+  const destructiveHeader = req.headers.get("x-confirm-destructive");
+  if (destructiveHeader !== "RESET_DB") {
+    return errorResponse(
+      "Missing safety header x-confirm-destructive: RESET_DB",
       400
     );
   }

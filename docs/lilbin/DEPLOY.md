@@ -10,7 +10,7 @@ docker compose up -d         # starts PostgreSQL on port 5432
 npm install
 npm run db:generate
 npm run db:migrate -- --name init
-npm run db:seed
+# Optional demo-only seed (destructive): ALLOW_DESTRUCTIVE_DB_OPS=true npm run db:seed:unsafe
 npm run dev                  # http://localhost:3000
 ```
 
@@ -26,7 +26,7 @@ docker compose up -d
 npm install
 npm run db:generate
 npm run db:migrate -- --name init
-npm run db:seed
+# Optional demo-only seed (destructive): ALLOW_DESTRUCTIVE_DB_OPS=true npm run db:seed:unsafe
 npm run build
 npm start                    # serves on port 3000
 
@@ -61,6 +61,7 @@ docker run -p 3000:3000 --env-file .env --network host lilbin-app
 |---|---|---|
 | `DATABASE_URL` | Yes | PostgreSQL connection string, e.g. `postgresql://lilbin:lilbin_secret@localhost:5432/lilbin_db` |
 | `INTERNAL_API_KEY` | Yes (prod) | API key for all Lil_Bin internal requests. **Must** be set when `NODE_ENV=production`. |
+| `ALLOW_DESTRUCTIVE_DB_OPS` | No | Safety switch for destructive operations. Keep `false` in real environments. |
 | `NODE_ENV` | No | `production` or `development`. Defaults to `development`. |
 
 ## 5. Database Management
@@ -69,10 +70,12 @@ docker run -p 3000:3000 --env-file .env --network host lilbin-app
 |---|---|
 | Generate Prisma client | `npm run db:generate` |
 | Create a migration | `npm run db:migrate -- --name description` |
-| Run seed data | `npm run db:seed` |
-| Reset database (destructive) | `npm run db:reset` |
+| Run seed data (destructive, guarded) | `ALLOW_DESTRUCTIVE_DB_OPS=true npm run db:seed` |
+| Run seed data (unsafe bypass) | `ALLOW_DESTRUCTIVE_DB_OPS=true npm run db:seed:unsafe` |
+| Reset database (destructive, guarded) | `ALLOW_DESTRUCTIVE_DB_OPS=true npm run db:reset` |
+| Reset database (unsafe bypass) | `ALLOW_DESTRUCTIVE_DB_OPS=true npm run db:reset:unsafe` |
 | Visual DB browser (port 5555) | `npm run db:studio` |
-| API seed reset | `POST /api/v1/system/seed` with `{"confirm": true}` (requires API key) |
+| API seed reset | `POST /api/v1/system/seed` with `{"confirm": true}` + header `x-confirm-destructive: RESET_DB` and `ALLOW_DESTRUCTIVE_DB_OPS=true` |
 
 ## 6. Health Check
 

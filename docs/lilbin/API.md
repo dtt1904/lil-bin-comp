@@ -124,7 +124,7 @@
 |--------|------|------|
 | GET | `/system/health` | **Không** |
 | GET | `/system/stats` | Có |
-| POST | `/system/seed` | Có; body `{ "confirm": true }` |
+| POST | `/system/seed` | Có; body `{ "confirm": true }`, header `x-confirm-destructive: RESET_DB`, và chỉ chạy khi `ALLOW_DESTRUCTIVE_DB_OPS=true` |
 
 ---
 
