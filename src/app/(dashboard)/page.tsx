@@ -118,19 +118,19 @@ export default async function CommandCenter() {
 
   return (
     <div className="min-h-screen bg-background">
-      <div className="mx-auto max-w-[1400px] px-4 py-8 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-[1400px]">
         {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-2xl font-semibold tracking-tight">
+        <div className="mb-6 sm:mb-8">
+          <h1 className="text-xl sm:text-2xl font-semibold tracking-tight">
             Command Center
           </h1>
-          <p className="mt-1 text-sm text-muted-foreground">
+          <p className="mt-1 text-xs sm:text-sm text-muted-foreground">
             Real-time overview across all workspaces
           </p>
         </div>
 
         {/* KPI Cards */}
-        <div className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="mb-6 sm:mb-8 grid grid-cols-2 gap-2 sm:gap-4 lg:grid-cols-4">
           <StatCard
             icon={ListChecks}
             label="Active Tasks"
@@ -162,12 +162,12 @@ export default async function CommandCenter() {
         </div>
 
         {/* Main Content Grid */}
-        <div className="mb-6 grid grid-cols-1 gap-6 lg:grid-cols-3">
-          <div className="space-y-6 lg:col-span-2">
+        <div className="mb-6 grid grid-cols-1 gap-4 sm:gap-6 lg:grid-cols-3">
+          <div className="space-y-4 sm:space-y-6 lg:col-span-2">
             <ActiveTasksTable tasks={serializedTasks} />
             <RecentActivity logEvents={serializedLogs} />
           </div>
-          <div className="space-y-6">
+          <div className="space-y-4 sm:space-y-6">
             <AgentStatusPanel agents={serializedAgents} />
             <PendingApprovals approvals={serializedApprovals} />
           </div>

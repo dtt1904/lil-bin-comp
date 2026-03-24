@@ -73,6 +73,12 @@ enum TaskRunStatus {
   CANCELLED
 }
 
+enum ExecutionTarget {
+  ANY
+  MAC_MINI
+  CLOUD
+}
+
 enum ApprovalStatus {
   PENDING
   APPROVED
@@ -412,11 +418,16 @@ model Project {
 }
 
 model Task {
-  id               String       @id @default(cuid())
+  id               String          @id @default(cuid())
   title            String
-  description      String?      @db.Text
-  status           TaskStatus   @default(BACKLOG)
-  priority         TaskPriority @default(MEDIUM)
+  description      String?         @db.Text
+  status           TaskStatus      @default(BACKLOG)
+  priority         TaskPriority    @default(MEDIUM)
+  executionTarget  ExecutionTarget @default(ANY)
+  lockedAt         DateTime?
+  lockedBy         String?
+  retryCount       Int             @default(0)
+  maxRetries       Int             @default(3)
   organizationId   String
   workspaceId      String?
   departmentId     String?
@@ -427,8 +438,8 @@ model Task {
   labels           String[]
   estimatedCost    Float?
   actualCost       Float?
-  createdAt        DateTime     @default(now())
-  updatedAt        DateTime     @updatedAt
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
 
   organization  Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   workspace     Workspace?   @relation(fields: [workspaceId], references: [id], onDelete: SetNull)
@@ -455,6 +466,7 @@ model Task {
   @@index([status])
   @@index([priority])
   @@index([dueDate])
+  @@index([status, lockedBy, executionTarget])
 }
 
 model TaskDependency {

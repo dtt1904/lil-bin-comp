@@ -62,41 +62,41 @@ export function TasksPageClient({ tasks, workspaces }: TasksPageClientProps) {
 
   return (
     <div className="min-h-screen bg-background">
-      <div className="mx-auto max-w-[1400px] px-4 py-8 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-[1400px]">
         {/* Header */}
-        <div className="mb-6 flex items-center justify-between">
+        <div className="mb-4 sm:mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h1 className="text-2xl font-semibold tracking-tight">Tasks</h1>
-            <p className="mt-1 text-sm text-muted-foreground">
+            <h1 className="text-xl sm:text-2xl font-semibold tracking-tight">Tasks</h1>
+            <p className="mt-0.5 text-xs sm:text-sm text-muted-foreground">
               {filtered.length} task{filtered.length !== 1 ? "s" : ""} across all workspaces
             </p>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 sm:gap-3">
             {/* View Toggle */}
             <div className="flex items-center rounded-lg border border-border/50 bg-muted/50 p-0.5">
               <button
                 onClick={() => setView("table")}
                 className={cn(
-                  "flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-all",
+                  "flex items-center gap-1 sm:gap-1.5 rounded-md px-2 sm:px-3 py-1.5 text-xs sm:text-sm font-medium transition-all",
                   view === "table"
                     ? "bg-background text-foreground shadow-sm"
                     : "text-muted-foreground hover:text-foreground"
                 )}
               >
-                <LayoutList className="size-4" />
-                Table
+                <LayoutList className="size-3.5 sm:size-4" />
+                <span className="hidden sm:inline">Table</span>
               </button>
               <button
                 onClick={() => setView("board")}
                 className={cn(
-                  "flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-all",
+                  "flex items-center gap-1 sm:gap-1.5 rounded-md px-2 sm:px-3 py-1.5 text-xs sm:text-sm font-medium transition-all",
                   view === "board"
                     ? "bg-background text-foreground shadow-sm"
                     : "text-muted-foreground hover:text-foreground"
                 )}
               >
-                <Kanban className="size-4" />
-                Board
+                <Kanban className="size-3.5 sm:size-4" />
+                <span className="hidden sm:inline">Board</span>
               </button>
             </div>
 
@@ -105,78 +105,82 @@ export function TasksPageClient({ tasks, workspaces }: TasksPageClientProps) {
         </div>
 
         {/* Filter Bar */}
-        <div className="mb-6 space-y-3">
-          {/* Status Chips */}
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-xs font-medium text-muted-foreground">Status</span>
-            {ALL_STATUSES.map((status) => (
-              <button
-                key={status}
-                onClick={() => toggleStatus(status)}
-                className={cn(
-                  "inline-flex h-7 items-center gap-1.5 rounded-md border px-2.5 text-xs font-medium transition-all",
-                  selectedStatuses.has(status)
-                    ? getStatusColor(status)
-                    : "border-border/50 text-muted-foreground hover:border-border hover:text-foreground"
-                )}
-              >
-                {status.replace(/_/g, " ")}
-              </button>
-            ))}
+        <div className="mb-4 sm:mb-6 space-y-2 sm:space-y-3">
+          {/* Status Chips — horizontal scroll on mobile */}
+          <div className="overflow-x-auto -mx-3 px-3 sm:mx-0 sm:px-0">
+            <div className="flex items-center gap-1.5 sm:gap-2 min-w-max">
+              <span className="text-[10px] sm:text-xs font-medium text-muted-foreground shrink-0">Status</span>
+              {ALL_STATUSES.map((status) => (
+                <button
+                  key={status}
+                  onClick={() => toggleStatus(status)}
+                  className={cn(
+                    "inline-flex h-6 sm:h-7 items-center gap-1 sm:gap-1.5 rounded-md border px-1.5 sm:px-2.5 text-[10px] sm:text-xs font-medium transition-all whitespace-nowrap",
+                    selectedStatuses.has(status)
+                      ? getStatusColor(status)
+                      : "border-border/50 text-muted-foreground hover:border-border hover:text-foreground"
+                  )}
+                >
+                  {status.replace(/_/g, " ")}
+                </button>
+              ))}
+            </div>
           </div>
 
-          {/* Priority + Workspace */}
-          <div className="flex flex-wrap items-center gap-4">
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-medium text-muted-foreground">Priority</span>
-              {ALL_PRIORITIES.map((p) => (
-                <button
-                  key={p}
-                  onClick={() => setSelectedPriority(selectedPriority === p ? null : p)}
-                  className={cn(
-                    "inline-flex h-7 items-center rounded-md border px-2.5 text-xs font-medium transition-all",
-                    selectedPriority === p
-                      ? getPriorityColor(p)
-                      : "border-border/50 text-muted-foreground hover:border-border hover:text-foreground"
-                  )}
-                >
-                  {p}
-                </button>
-              ))}
+          {/* Priority + Workspace — horizontal scroll on mobile */}
+          <div className="overflow-x-auto -mx-3 px-3 sm:mx-0 sm:px-0">
+            <div className="flex items-center gap-2 sm:gap-4 min-w-max">
+              <div className="flex items-center gap-1.5 sm:gap-2">
+                <span className="text-[10px] sm:text-xs font-medium text-muted-foreground shrink-0">Priority</span>
+                {ALL_PRIORITIES.map((p) => (
+                  <button
+                    key={p}
+                    onClick={() => setSelectedPriority(selectedPriority === p ? null : p)}
+                    className={cn(
+                      "inline-flex h-6 sm:h-7 items-center rounded-md border px-1.5 sm:px-2.5 text-[10px] sm:text-xs font-medium transition-all",
+                      selectedPriority === p
+                        ? getPriorityColor(p)
+                        : "border-border/50 text-muted-foreground hover:border-border hover:text-foreground"
+                    )}
+                  >
+                    {p}
+                  </button>
+                ))}
+              </div>
+
+              <div className="h-5 w-px bg-border/50 shrink-0" />
+
+              <div className="flex items-center gap-1.5 sm:gap-2">
+                <span className="text-[10px] sm:text-xs font-medium text-muted-foreground shrink-0">Workspace</span>
+                {workspaces.map((ws) => (
+                  <button
+                    key={ws.id}
+                    onClick={() => setSelectedWorkspace(selectedWorkspace === ws.id ? null : ws.id)}
+                    className={cn(
+                      "inline-flex h-6 sm:h-7 items-center rounded-md border px-1.5 sm:px-2.5 text-[10px] sm:text-xs font-medium transition-all whitespace-nowrap",
+                      selectedWorkspace === ws.id
+                        ? "border-blue-500/30 bg-blue-500/10 text-blue-400"
+                        : "border-border/50 text-muted-foreground hover:border-border hover:text-foreground"
+                    )}
+                  >
+                    {ws.name}
+                  </button>
+                ))}
+              </div>
+
+              {hasFilters && (
+                <>
+                  <div className="h-5 w-px bg-border/50 shrink-0" />
+                  <button
+                    onClick={clearFilters}
+                    className="flex items-center gap-1 text-[10px] sm:text-xs text-muted-foreground hover:text-foreground whitespace-nowrap"
+                  >
+                    <X className="size-3" />
+                    Clear
+                  </button>
+                </>
+              )}
             </div>
-
-            <div className="h-5 w-px bg-border/50" />
-
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-medium text-muted-foreground">Workspace</span>
-              {workspaces.map((ws) => (
-                <button
-                  key={ws.id}
-                  onClick={() => setSelectedWorkspace(selectedWorkspace === ws.id ? null : ws.id)}
-                  className={cn(
-                    "inline-flex h-7 items-center rounded-md border px-2.5 text-xs font-medium transition-all",
-                    selectedWorkspace === ws.id
-                      ? "border-blue-500/30 bg-blue-500/10 text-blue-400"
-                      : "border-border/50 text-muted-foreground hover:border-border hover:text-foreground"
-                  )}
-                >
-                  {ws.name}
-                </button>
-              ))}
-            </div>
-
-            {hasFilters && (
-              <>
-                <div className="h-5 w-px bg-border/50" />
-                <button
-                  onClick={clearFilters}
-                  className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
-                >
-                  <X className="size-3" />
-                  Clear filters
-                </button>
-              </>
-            )}
           </div>
         </div>
 

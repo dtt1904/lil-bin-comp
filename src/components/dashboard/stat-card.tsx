@@ -21,18 +21,18 @@ export function StatCard({
 }: StatCardProps) {
   return (
     <Card>
-      <CardContent className="flex items-center gap-4">
+      <CardContent className="flex items-center gap-2 sm:gap-4 p-3 sm:p-6">
         <div
           className={cn(
-            "flex h-10 w-10 shrink-0 items-center justify-center rounded-lg",
+            "flex h-8 w-8 sm:h-10 sm:w-10 shrink-0 items-center justify-center rounded-lg",
             iconBgClassName
           )}
         >
-          <Icon className={cn("h-5 w-5", iconClassName)} />
+          <Icon className={cn("h-4 w-4 sm:h-5 sm:w-5", iconClassName)} />
         </div>
         <div className="min-w-0 flex-1">
-          <p className="text-2xl font-semibold tracking-tight">{value}</p>
-          <p className="text-xs text-muted-foreground">{label}</p>
+          <p className="text-lg sm:text-2xl font-semibold tracking-tight">{value}</p>
+          <p className="text-[10px] sm:text-xs text-muted-foreground">{label}</p>
         </div>
         {trend && (
           <div

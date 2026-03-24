@@ -65,8 +65,8 @@ export function CostChart({ costRecords }: CostChartProps) {
           {formatCurrency(totalWeek)} total over the last 7 days
         </CardDescription>
       </CardHeader>
-      <CardContent>
-        <ResponsiveContainer width="100%" height={280}>
+      <CardContent className="px-2 sm:px-6">
+        <ResponsiveContainer width="100%" height={220} className="sm:!h-[280px]">
           <AreaChart
             data={chartData}
             margin={{ top: 8, right: 8, left: -12, bottom: 0 }}

@@ -21,7 +21,7 @@ import {
 import { cn } from "@/lib/utils";
 import { WorkspaceSwitcher } from "./workspace-switcher";
 
-const navSections = [
+export const navSections = [
   {
     label: "Command",
     items: [

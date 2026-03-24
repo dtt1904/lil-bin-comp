@@ -63,8 +63,8 @@ export function TaskTable({ tasks }: { tasks: SerializedTask[] }) {
   }, [tasks, sortField, sortDir]);
 
   return (
-    <div className="rounded-lg border border-border/50">
-      <Table>
+    <div className="rounded-lg border border-border/50 overflow-x-auto">
+      <Table className="min-w-[700px]">
         <TableHeader>
           <TableRow className="hover:bg-transparent">
             <TableHead className="w-[130px]">Status</TableHead>

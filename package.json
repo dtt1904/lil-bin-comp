@@ -13,6 +13,8 @@
     "db:seed": "npx tsx prisma/seed.ts",
     "db:reset": "npx prisma migrate reset --force",
     "db:studio": "npx prisma studio",
+    "runner": "npx tsx scripts/run-worker.ts",
+    "runner:mac": "npx tsx scripts/run-worker.ts --target MAC_MINI",
     "setup": "docker compose up -d && sleep 2 && npm run db:generate && npm run db:migrate && npm run db:seed"
   },
   "prisma": {

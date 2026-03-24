@@ -10,6 +10,7 @@ import {
   ApprovalStatus,
   LogLevel,
   Severity,
+  ExecutionTarget,
 } from "@/generated/prisma/enums";
 
 export async function GET(
@@ -68,6 +69,8 @@ export async function PATCH(
     if (body.dueDate !== undefined) updateData.dueDate = body.dueDate ? new Date(body.dueDate) : null;
     if (body.estimatedCost !== undefined) updateData.estimatedCost = body.estimatedCost;
     if (body.actualCost !== undefined) updateData.actualCost = body.actualCost;
+    if (body.executionTarget !== undefined) updateData.executionTarget = body.executionTarget as ExecutionTarget;
+    if (body.maxRetries !== undefined) updateData.maxRetries = body.maxRetries;
 
     const updated = await prisma.task.update({ where: { id }, data: updateData });
 

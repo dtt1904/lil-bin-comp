@@ -43,8 +43,9 @@ export function ActiveTasksTable({ tasks }: ActiveTasksTableProps) {
           {tasks.length} tasks in progress or queued
         </CardDescription>
       </CardHeader>
-      <CardContent>
-        <Table>
+      <CardContent className="px-2 sm:px-6">
+        <div className="overflow-x-auto -mx-2 sm:mx-0">
+        <Table className="min-w-[600px]">
           <TableHeader>
             <TableRow className="hover:bg-transparent">
               <TableHead>Status</TableHead>
@@ -124,6 +125,7 @@ export function ActiveTasksTable({ tasks }: ActiveTasksTableProps) {
             ))}
           </TableBody>
         </Table>
+        </div>
       </CardContent>
     </Card>
   );

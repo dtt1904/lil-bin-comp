@@ -6,7 +6,7 @@ import {
   errorResponse,
   parseSearchParams,
 } from "@/lib/api-auth";
-import { TaskStatus, TaskPriority, LogLevel } from "@/generated/prisma/enums";
+import { TaskStatus, TaskPriority, LogLevel, ExecutionTarget } from "@/generated/prisma/enums";
 
 export async function GET(req: NextRequest) {
   const auth = authenticateRequest(req);
@@ -73,8 +73,10 @@ export async function POST(req: NextRequest) {
         status: (body.status as TaskStatus) ?? TaskStatus.BACKLOG,
         priority: (body.priority as TaskPriority) ?? TaskPriority.MEDIUM,
         dueDate: body.dueDate ? new Date(body.dueDate) : undefined,
-        labels: body.tags ?? [],
+        labels: body.tags ?? body.labels ?? [],
         estimatedCost: body.estimatedTokens ?? undefined,
+        executionTarget: (body.executionTarget as ExecutionTarget) ?? undefined,
+        maxRetries: body.maxRetries ?? undefined,
       },
     });
 
