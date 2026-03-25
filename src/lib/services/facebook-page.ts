@@ -36,20 +36,43 @@ const GRAPH_API = "https://graph.facebook.com/v19.0";
 async function graphFetch<T>(
   url: string,
   opts?: RequestInit
-): Promise<{ ok: true; data: T } | { ok: false; error: string }> {
+): Promise<{ ok: true; data: T } | { ok: false; error: string; status?: number; body?: unknown }> {
+  const safeUrl = url.replace(/access_token=[^&]+/, "access_token=***");
+  console.log(`[fb] Request: ${opts?.method ?? "GET"} ${safeUrl}`);
+
   try {
     const res = await fetch(url, opts);
-    const json = await res.json();
-    if (!res.ok) {
-      const msg =
-        json?.error?.message ?? json?.error ?? `HTTP ${res.status}`;
-      return { ok: false, error: `Graph API error: ${msg}` };
+    let json: unknown;
+    try {
+      json = await res.json();
+    } catch {
+      const text = await res.text().catch(() => "(unreadable)");
+      console.error(`[fb] Response not JSON: status=${res.status}, body=${text.slice(0, 500)}`);
+      return { ok: false, error: `Non-JSON response (HTTP ${res.status})`, status: res.status };
     }
+
+    if (!res.ok) {
+      const errObj = json as { error?: { message?: string; type?: string; code?: number } };
+      const msg = errObj?.error?.message ?? JSON.stringify(json).slice(0, 300);
+      const errorType = errObj?.error?.type ?? "unknown";
+      const errorCode = errObj?.error?.code ?? 0;
+      console.error(`[fb] API error: status=${res.status}, type=${errorType}, code=${errorCode}, message=${msg}`);
+      return {
+        ok: false,
+        error: `Graph API error (${res.status}): [${errorType}] ${msg}`,
+        status: res.status,
+        body: json,
+      };
+    }
+
+    console.log(`[fb] Response OK: status=${res.status}, keys=${Object.keys(json as object).join(",")}`);
     return { ok: true, data: json as T };
   } catch (err) {
+    const errMsg = err instanceof Error ? err.message : String(err);
+    console.error(`[fb] Network error: ${errMsg}`);
     return {
       ok: false,
-      error: `Network error: ${err instanceof Error ? err.message : String(err)}`,
+      error: `Network error: ${errMsg}`,
     };
   }
 }
@@ -60,11 +83,11 @@ export async function postToPage(
   payload: FBPostPayload,
   dryRun = false
 ): Promise<{ ok: true; result: FBPostResult } | { ok: false; error: string }> {
+  console.log(`[fb] postToPage: pageId=${pageId}, dryRun=${dryRun}, messageLength=${payload.message.length}`);
+
   if (dryRun) {
     const mockId = `dry_${Date.now()}`;
-    console.log(
-      `[fb] DRY RUN — would post to page ${pageId}: "${payload.message.slice(0, 80)}..."`
-    );
+    console.log(`[fb] DRY RUN — would post to page ${pageId}: "${payload.message.slice(0, 80)}..."`);
     return {
       ok: true,
       result: {
@@ -73,6 +96,9 @@ export async function postToPage(
       },
     };
   }
+
+  console.log(`[fb] LIVE POST — sending to Graph API: ${GRAPH_API}/${pageId}/feed`);
+  console.log(`[fb]   token length=${token.length}, starts with=${token.slice(0, 10)}...`);
 
   const params = new URLSearchParams({
     message: payload.message,
@@ -85,14 +111,18 @@ export async function postToPage(
     { method: "POST", body: params }
   );
 
-  if (!res.ok) return res;
+  if (!res.ok) {
+    console.error(`[fb] postToPage FAILED: ${res.error}`);
+    return { ok: false, error: res.error };
+  }
+
+  const postId = res.data.id;
+  const url = `https://facebook.com/${postId.replace("_", "/posts/")}`;
+  console.log(`[fb] postToPage SUCCESS: postId=${postId}, url=${url}`);
 
   return {
     ok: true,
-    result: {
-      postId: res.data.id,
-      url: `https://facebook.com/${res.data.id.replace("_", "/posts/")}`,
-    },
+    result: { postId, url },
   };
 }
 
@@ -116,10 +146,11 @@ export async function getPageComments(
   }> }>(`${GRAPH_API}/${postId}/comments?${params}`);
 
   if (!res.ok) {
-    console.error(`[fb] Failed to get comments for ${postId}: ${res.error}`);
+    console.error(`[fb] getPageComments FAILED for ${postId}: ${res.error}`);
     return [];
   }
 
+  console.log(`[fb] getPageComments: ${res.data.data.length} comments for ${postId}`);
   return res.data.data.map((c) => ({
     id: c.id,
     message: c.message,
@@ -145,13 +176,15 @@ export async function getPostMetrics(
   }>(`${GRAPH_API}/${postId}?${params}`);
 
   if (!res.ok) {
-    console.error(`[fb] Failed to get metrics for ${postId}: ${res.error}`);
+    console.error(`[fb] getPostMetrics FAILED for ${postId}: ${res.error}`);
     return { likes: 0, comments: 0, shares: 0 };
   }
 
-  return {
+  const metrics = {
     likes: res.data.likes?.summary?.total_count ?? 0,
     comments: res.data.comments?.summary?.total_count ?? 0,
     shares: res.data.shares?.count ?? 0,
   };
+  console.log(`[fb] getPostMetrics for ${postId}: ${JSON.stringify(metrics)}`);
+  return metrics;
 }
