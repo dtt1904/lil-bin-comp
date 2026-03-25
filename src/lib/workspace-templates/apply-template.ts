@@ -48,6 +48,7 @@ export async function applyWorkspaceTemplate(
           slug: d.slug,
           description: d.description,
         },
+        select: { id: true },
       });
       deptIds.set(d.slug, row.id);
     }
@@ -67,6 +68,7 @@ export async function applyWorkspaceTemplate(
           status: ModuleStatus.ACTIVE,
         },
         update: {},
+        select: { id: true },
       });
     }
 
@@ -92,6 +94,7 @@ export async function applyWorkspaceTemplate(
           ),
           status: AgentStatus.OFFLINE,
         },
+        select: { id: true },
       });
     }
 
@@ -112,6 +115,7 @@ export async function applyWorkspaceTemplate(
           status: ProjectStatus.ACTIVE,
           departmentId,
         },
+        select: { id: true },
       });
       projectId = created.id;
     }
@@ -138,6 +142,7 @@ export async function applyWorkspaceTemplate(
           status: TaskStatus.BACKLOG,
           priority,
         },
+        select: { id: true },
       });
     }
   });

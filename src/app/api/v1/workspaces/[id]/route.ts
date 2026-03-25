@@ -9,6 +9,17 @@ import { WorkspaceType } from "@/generated/prisma/enums";
 
 const VALID_WORKSPACE_TYPES = Object.values(WorkspaceType);
 
+const WORKSPACE_SELECT = {
+  id: true,
+  name: true,
+  slug: true,
+  description: true,
+  type: true,
+  organizationId: true,
+  createdAt: true,
+  updatedAt: true,
+} as const;
+
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -21,9 +32,15 @@ export async function GET(
   try {
     const workspace = await prisma.workspace.findFirst({
       where: { id, organizationId: auth.ctx.organizationId },
-      include: {
+      select: {
+        ...WORKSPACE_SELECT,
         _count: {
-          select: { departments: true, agents: true, tasks: true, projects: true },
+          select: {
+            departments: true,
+            agents: true,
+            tasks: true,
+            projects: true,
+          },
         },
       },
     });
@@ -39,8 +56,12 @@ export async function GET(
         _counts: _count,
       },
     });
-  } catch {
-    return errorResponse("Internal error", 500);
+  } catch (err) {
+    console.error("[workspace GET] failed:", err);
+    return errorResponse(
+      `Failed to fetch workspace: ${err instanceof Error ? err.message : "unknown"}`,
+      500
+    );
   }
 }
 
@@ -90,18 +111,24 @@ export async function PATCH(
     const updated = await prisma.workspace.update({
       where: { id },
       data,
+      select: WORKSPACE_SELECT,
     });
 
     return jsonResponse({ data: updated });
-  } catch (e: any) {
-    if (e.code === "P2025") return errorResponse("Workspace not found", 404);
-    if (e.code === "P2002") {
+  } catch (e: unknown) {
+    const err = e as { code?: string; message?: string };
+    console.error("[workspace PATCH] failed:", e);
+    if (err.code === "P2025") return errorResponse("Workspace not found", 404);
+    if (err.code === "P2002") {
       return errorResponse(
         `Workspace with slug "${slug}" already exists`,
         409
       );
     }
-    return errorResponse("Internal error", 500);
+    return errorResponse(
+      `Failed to update workspace: ${err.message ?? "unknown"}`,
+      500
+    );
   }
 }
 
@@ -123,8 +150,13 @@ export async function DELETE(
 
     await prisma.workspace.delete({ where: { id } });
     return jsonResponse({ success: true });
-  } catch (e: any) {
-    if (e.code === "P2025") return errorResponse("Workspace not found", 404);
-    return errorResponse("Internal error", 500);
+  } catch (e: unknown) {
+    const err = e as { code?: string; message?: string };
+    console.error("[workspace DELETE] failed:", e);
+    if (err.code === "P2025") return errorResponse("Workspace not found", 404);
+    return errorResponse(
+      `Failed to delete workspace: ${err.message ?? "unknown"}`,
+      500
+    );
   }
 }
