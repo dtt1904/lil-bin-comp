@@ -1,27 +1,42 @@
 import { NextRequest, NextResponse } from "next/server";
 
-const isProduction = process.env.NODE_ENV === "production";
+function isProductionDeploy(): boolean {
+  return (
+    process.env.NODE_ENV === "production" ||
+    process.env.VERCEL_ENV === "production"
+  );
+}
 
-function requireEnvInProduction(name: string, devFallback: string): string {
-  const value = process.env[name];
-  if (value) return value;
+const DEV_API_KEY_FALLBACK = "lilbin-dev-key-2024";
 
-  if (isProduction) {
-    throw new Error(
-      `Environment variable ${name} is required in production but not set.`
-    );
+/**
+ * Resolves the expected API key at request time (not at module load) so production
+ * builds and analysis do not throw when INTERNAL_API_KEY is unset during `next build`.
+ */
+let cachedExpectedKey: string | null | undefined;
+
+function getExpectedInternalApiKey(): string | null {
+  if (cachedExpectedKey !== undefined) {
+    return cachedExpectedKey;
+  }
+
+  const fromEnv = process.env.INTERNAL_API_KEY;
+  if (fromEnv && fromEnv.length > 0) {
+    cachedExpectedKey = fromEnv;
+    return fromEnv;
+  }
+
+  if (isProductionDeploy()) {
+    cachedExpectedKey = null;
+    return null;
   }
 
   console.warn(
-    `[api-auth] ${name} not set — using dev fallback. Do NOT rely on this in production.`
+    `[api-auth] INTERNAL_API_KEY not set — using dev-only fallback "${DEV_API_KEY_FALLBACK}". Do not use in production.`
   );
-  return devFallback;
+  cachedExpectedKey = DEV_API_KEY_FALLBACK;
+  return cachedExpectedKey;
 }
-
-const INTERNAL_API_KEY = requireEnvInProduction(
-  "INTERNAL_API_KEY",
-  "lilbin-dev-key-2024"
-);
 
 export interface AuthContext {
   apiKey: string;
@@ -39,9 +54,24 @@ function resolveApiKey(req: NextRequest): string | null {
 export function authenticateRequest(
   req: NextRequest
 ): { ok: true; ctx: AuthContext } | { ok: false; response: NextResponse } {
+  const expected = getExpectedInternalApiKey();
+  if (expected === null) {
+    return {
+      ok: false,
+      response: NextResponse.json(
+        {
+          error: "server_misconfigured",
+          message:
+            "INTERNAL_API_KEY must be set in production. Configure it in your deployment environment.",
+        },
+        { status: 503 }
+      ),
+    };
+  }
+
   const apiKey = resolveApiKey(req);
 
-  if (!apiKey || apiKey !== INTERNAL_API_KEY) {
+  if (!apiKey || apiKey !== expected) {
     return {
       ok: false,
       response: NextResponse.json(
@@ -66,9 +96,24 @@ export function authenticateRequest(
 export function authenticateStreamRequest(
   req: NextRequest
 ): { ok: true; ctx: AuthContext } | { ok: false; response: NextResponse } {
+  const expected = getExpectedInternalApiKey();
+  if (expected === null) {
+    return {
+      ok: false,
+      response: NextResponse.json(
+        {
+          error: "server_misconfigured",
+          message:
+            "INTERNAL_API_KEY must be set in production. Configure it in your deployment environment.",
+        },
+        { status: 503 }
+      ),
+    };
+  }
+
   const apiKey = resolveApiKey(req);
 
-  if (!apiKey || apiKey !== INTERNAL_API_KEY) {
+  if (!apiKey || apiKey !== expected) {
     return {
       ok: false,
       response: NextResponse.json(

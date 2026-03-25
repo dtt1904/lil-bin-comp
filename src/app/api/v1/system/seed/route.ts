@@ -7,6 +7,14 @@ import {
 } from "@/lib/api-auth";
 
 const destructiveOpsEnabled = process.env.ALLOW_DESTRUCTIVE_DB_OPS === "true";
+const productionResetEnabled = process.env.ALLOW_PRODUCTION_RESET === "true";
+
+function isProductionDeploy(): boolean {
+  return (
+    process.env.NODE_ENV === "production" ||
+    process.env.VERCEL_ENV === "production"
+  );
+}
 
 export async function POST(req: NextRequest) {
   const auth = authenticateRequest(req);
@@ -23,6 +31,13 @@ export async function POST(req: NextRequest) {
     return errorResponse(
       "Must send { confirm: true } to reset database",
       400
+    );
+  }
+
+  if (isProductionDeploy() && !productionResetEnabled) {
+    return errorResponse(
+      "Database reset is disabled in production by default. Set ALLOW_PRODUCTION_RESET=true only on purpose, and still require ALLOW_DESTRUCTIVE_DB_OPS and the safety header.",
+      403
     );
   }
 

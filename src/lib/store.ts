@@ -1,3 +1,7 @@
+/**
+ * Legacy in-memory demo store (seeded from mock-data). Not imported by `src/app` API routes;
+ * the app uses Prisma for persistence. Do not wire this back into production request paths.
+ */
 import * as mock from "./mock-data";
 import type {
   Organization, Workspace, Department, User, Agent, AgentPermission,

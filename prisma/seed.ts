@@ -32,6 +32,27 @@ function daysFromNow(n: number): Date {
 }
 
 async function main() {
+  const isProdRuntime =
+    process.env.NODE_ENV === "production" ||
+    process.env.VERCEL_ENV === "production";
+
+  if (isProdRuntime && process.env.ALLOW_PRODUCTION_SEED !== "true") {
+    console.error(
+      [
+        "[seed] Refusing to run in production (NODE_ENV/VERCEL_ENV indicates production).",
+        "This script wipes and rewrites data. To override deliberately, set:",
+        "  ALLOW_PRODUCTION_SEED=true",
+      ].join("\n")
+    );
+    process.exit(1);
+  }
+
+  if (isProdRuntime) {
+    console.warn(
+      "[seed] ALLOW_PRODUCTION_SEED=true — running destructive seed in production."
+    );
+  }
+
   console.log("🧹 Clearing all tables in reverse-dependency order...");
 
   await prisma.integrationAccount.deleteMany();
