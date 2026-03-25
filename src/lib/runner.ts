@@ -1,11 +1,11 @@
-import { PrismaClient } from "@/generated/prisma/client";
+import { PrismaClient } from "../generated/prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import {
   TaskStatus,
   TaskRunStatus,
   LogLevel,
   ExecutionTarget,
-} from "@/generated/prisma/enums";
+} from "../generated/prisma/enums";
 
 // ---------------------------------------------------------------------------
 // Config
