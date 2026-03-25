@@ -35,7 +35,29 @@ export async function GET(req: NextRequest) {
     if (params.priority) where.priority = params.priority as TaskPriority;
 
     const [data, total] = await Promise.all([
-      prisma.task.findMany({ where, skip: offset, take: limit, orderBy: { createdAt: "desc" } }),
+      prisma.task.findMany({
+        where,
+        skip: offset,
+        take: limit,
+        orderBy: { createdAt: "desc" },
+        select: {
+          id: true,
+          title: true,
+          description: true,
+          status: true,
+          priority: true,
+          organizationId: true,
+          workspaceId: true,
+          departmentId: true,
+          projectId: true,
+          assigneeAgentId: true,
+          createdByUserId: true,
+          dueDate: true,
+          labels: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      }),
       prisma.task.count({ where }),
     ]);
 

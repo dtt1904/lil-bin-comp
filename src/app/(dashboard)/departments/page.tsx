@@ -12,25 +12,49 @@ import { DEFAULT_ORGANIZATION_ID } from "@/lib/default-organization";
 
 const ACTIVE_TASK_STATUSES = ["RUNNING", "QUEUED", "BLOCKED", "AWAITING_APPROVAL"];
 
+type DeptRow = {
+  id: string;
+  name: string;
+  slug: string;
+  description: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+  organizationId: string;
+  workspaceId: string;
+  managerId: string | null;
+  workspace: { id: string; name: string; type: string };
+  manager: { id: string; name: string } | null;
+  agents: { id: string; name: string }[];
+  tasks: { id: string; status: string; projectId: string | null }[];
+  projects: { id: string }[];
+};
+
 export default async function DepartmentsPage() {
-  const [departments, workspaces] = await Promise.all([
-    prisma.department.findMany({
-      where: { organizationId: DEFAULT_ORGANIZATION_ID },
-      include: {
-        workspace: { select: { id: true, name: true, type: true } },
-        manager: { select: { id: true, name: true } },
-        agents: { select: { id: true, name: true } },
-        tasks: { select: { id: true, status: true, projectId: true } },
-        projects: { select: { id: true } },
-      },
-      orderBy: { name: "asc" },
-    }),
-    prisma.workspace.findMany({
-      where: { organizationId: DEFAULT_ORGANIZATION_ID },
-      select: { id: true, name: true, type: true },
-      orderBy: { name: "asc" },
-    }),
-  ]);
+  let departments: DeptRow[] = [];
+  let workspaces: { id: string; name: string; type: string }[] = [];
+
+  try {
+    [departments, workspaces] = await Promise.all([
+      prisma.department.findMany({
+        where: { organizationId: DEFAULT_ORGANIZATION_ID },
+        include: {
+          workspace: { select: { id: true, name: true, type: true } },
+          manager: { select: { id: true, name: true } },
+          agents: { select: { id: true, name: true } },
+          tasks: { select: { id: true, status: true, projectId: true } },
+          projects: { select: { id: true } },
+        },
+        orderBy: { name: "asc" },
+      }),
+      prisma.workspace.findMany({
+        where: { organizationId: DEFAULT_ORGANIZATION_ID },
+        select: { id: true, name: true, type: true },
+        orderBy: { name: "asc" },
+      }),
+    ]);
+  } catch (err) {
+    console.error("[departments-page] query failed:", err);
+  }
 
   const deptsByWorkspace = workspaces.map((ws) => ({
     workspace: ws,
