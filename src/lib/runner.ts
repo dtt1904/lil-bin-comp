@@ -354,6 +354,12 @@ async function executeTask(
   const label = task.labels.find((l) => executors.has(l));
   const executor = label ? executors.get(label)! : executors.get("default");
 
+  if (label) {
+    console.log(`[runner] Dispatching task ${task.id} to executor "${label}"`);
+  } else {
+    console.warn(`[runner] No matching executor for labels [${task.labels.join(", ")}] — falling back to "default"`);
+  }
+
   if (!executor) {
     await failRun(
       prisma,
