@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { DEFAULT_ORGANIZATION_ID } from "@/lib/default-organization";
 
 function isProductionDeploy(): boolean {
   return (
@@ -85,7 +86,7 @@ export function authenticateRequest(
   }
 
   const organizationId =
-    req.headers.get("x-organization-id") || "org-1";
+    req.headers.get("x-organization-id")?.trim() || DEFAULT_ORGANIZATION_ID;
 
   return {
     ok: true,
@@ -128,9 +129,9 @@ export function authenticateStreamRequest(
   }
 
   const organizationId =
-    req.headers.get("x-organization-id") ||
-    req.nextUrl.searchParams.get("organizationId") ||
-    "org-1";
+    req.headers.get("x-organization-id")?.trim() ||
+    req.nextUrl.searchParams.get("organizationId")?.trim() ||
+    DEFAULT_ORGANIZATION_ID;
 
   return {
     ok: true,
