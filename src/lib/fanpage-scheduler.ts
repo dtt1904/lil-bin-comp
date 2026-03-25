@@ -101,7 +101,7 @@ export async function runFanpageSchedulerCycle(
     for (const label of PIPELINE_LABELS) {
       const flagKey = LABEL_TO_CONFIG_FLAG[label];
       const enabled = config[flagKey];
-      if (enabled === false) continue;
+      if (enabled === false && !(label === "fanpage:post" && config.mode === "live")) continue;
 
       const alreadyActive = await hasActiveTask(
         prisma,
