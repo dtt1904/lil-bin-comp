@@ -81,7 +81,7 @@ export function TaskTable({ tasks }: { tasks: SerializedTask[] }) {
               </Button>
             </TableHead>
             <TableHead className="w-[140px]">Assignee</TableHead>
-            <TableHead className="w-[100px]">Workspace</TableHead>
+            <TableHead className="w-[120px]">Customer</TableHead>
             <TableHead className="w-[140px]">Project</TableHead>
             <TableHead className="w-[100px]">
               <Button
@@ -145,7 +145,7 @@ export function TaskTable({ tasks }: { tasks: SerializedTask[] }) {
                   )}
                 </TableCell>
                 <TableCell className="text-sm text-muted-foreground">
-                  {task.workspace?.name ?? "—"}
+                  {task.workspace?.name ?? "Internal"}
                 </TableCell>
                 <TableCell className="max-w-[140px]">
                   {task.project ? (

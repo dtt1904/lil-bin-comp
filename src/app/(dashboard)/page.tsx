@@ -1,14 +1,11 @@
 export const dynamic = "force-dynamic";
-import { ListChecks, Clock, Bot, DollarSign } from "lucide-react";
 import { prisma } from "@/lib/db";
-import { formatCurrency } from "@/lib/helpers";
-import { StatCard } from "@/components/dashboard/stat-card";
 import { ActiveTasksTable } from "@/components/dashboard/active-tasks-table";
 import { AgentStatusPanel } from "@/components/dashboard/agent-status-panel";
 import { PendingApprovals } from "@/components/dashboard/pending-approvals";
 import { RecentActivity } from "@/components/dashboard/recent-activity";
 import { CostChart } from "@/components/dashboard/cost-chart";
-import { RunnerActivity } from "@/components/dashboard/runner-activity";
+import { LiveOverview } from "@/components/dashboard/live-overview";
 
 export default async function CommandCenter() {
   const today = new Date();
@@ -161,37 +158,20 @@ export default async function CommandCenter() {
           </p>
         </div>
 
-        {/* KPI Cards */}
-        <div className="mb-6 sm:mb-8 grid grid-cols-2 gap-2 sm:gap-4 lg:grid-cols-4">
-          <StatCard
-            icon={ListChecks}
-            label="Active Tasks"
-            value={activeTaskCount}
-            iconClassName="text-blue-400"
-            iconBgClassName="bg-blue-500/10"
-          />
-          <StatCard
-            icon={Clock}
-            label="Pending Approvals"
-            value={pendingApprovalCount}
-            iconClassName="text-amber-400"
-            iconBgClassName="bg-amber-500/10"
-          />
-          <StatCard
-            icon={Bot}
-            label="Active Agents"
-            value={`${activeAgentCount}/${totalAgentCount}`}
-            iconClassName="text-emerald-400"
-            iconBgClassName="bg-emerald-500/10"
-          />
-          <StatCard
-            icon={DollarSign}
-            label="Today's Cost"
-            value={formatCurrency(todayCost)}
-            iconClassName="text-violet-400"
-            iconBgClassName="bg-violet-500/10"
-          />
-        </div>
+        <LiveOverview
+          initialStats={{
+            activeTaskCount,
+            pendingApprovalCount,
+            activeAgentCount,
+            totalAgentCount,
+            todayCost,
+          }}
+          initialRunner={{
+            completedLastHour: runsCompletedLastHour,
+            failedLastHour: runsFailedLastHour,
+            runs: serializedRuns,
+          }}
+        />
 
         {/* Main Content Grid */}
         <div className="mb-6 grid grid-cols-1 gap-4 sm:gap-6 lg:grid-cols-3">
@@ -205,13 +185,8 @@ export default async function CommandCenter() {
           </div>
         </div>
 
-        <div className="mb-6 grid grid-cols-1 gap-4 sm:gap-6 lg:grid-cols-2">
+        <div className="mb-6 grid grid-cols-1 gap-4 sm:gap-6">
           <CostChart costRecords={serializedCosts} />
-          <RunnerActivity
-            runs={serializedRuns}
-            completedLastHour={runsCompletedLastHour}
-            failedLastHour={runsFailedLastHour}
-          />
         </div>
       </div>
     </div>

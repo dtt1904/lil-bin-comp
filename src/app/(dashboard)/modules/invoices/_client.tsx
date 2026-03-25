@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   DollarSign,
@@ -28,6 +28,7 @@ import {
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 import { api } from "@/lib/api-client";
+import { streamUrl } from "@/lib/live-stream";
 
 const INVOICE_STATUS_COLOR: Record<string, string> = {
   DRAFT: "bg-zinc-500/15 text-zinc-400 border-zinc-500/20",
@@ -70,6 +71,8 @@ export function InvoicesPageClient({
   workspaces,
 }: InvoicesPageClientProps) {
   const router = useRouter();
+  const [liveInvoices, setLiveInvoices] = useState<SerializedInvoice[]>(invoices);
+  const [liveConnected, setLiveConnected] = useState(false);
   const [selectedStatuses, setSelectedStatuses] = useState<Set<string>>(
     new Set()
   );
@@ -77,6 +80,38 @@ export function InvoicesPageClient({
     null
   );
   const [markingPaidId, setMarkingPaidId] = useState<string | null>(null);
+
+  useEffect(() => {
+    setLiveInvoices(invoices);
+  }, [invoices]);
+
+  useEffect(() => {
+    if (typeof EventSource === "undefined") {
+      const id = setInterval(async () => {
+        const res = await api<SerializedInvoice[]>("/invoices?limit=120");
+        if (res.ok && res.data) {
+          setLiveConnected(false);
+          setLiveInvoices(res.data);
+        }
+      }, 6000);
+      return () => clearInterval(id);
+    }
+
+    const es = new EventSource(streamUrl("/invoices"));
+    es.addEventListener("connected", () => setLiveConnected(true));
+    es.addEventListener("invoices", (event) => {
+      try {
+        const payload = JSON.parse((event as MessageEvent).data);
+        if (payload?.data?.invoices) {
+          setLiveInvoices(payload.data.invoices as SerializedInvoice[]);
+        }
+      } catch {
+        // ignore malformed frames
+      }
+    });
+    es.onerror = () => setLiveConnected(false);
+    return () => es.close();
+  }, []);
 
   async function markPaid(invoiceId: string) {
     setMarkingPaidId(invoiceId);
@@ -112,20 +147,20 @@ export function InvoicesPageClient({
   const hasFilters = selectedStatuses.size > 0 || selectedWorkspace;
 
   const filtered = useMemo(() => {
-    return invoices.filter((inv) => {
+    return liveInvoices.filter((inv) => {
       if (selectedStatuses.size > 0 && !selectedStatuses.has(inv.status))
         return false;
       if (selectedWorkspace && inv.workspaceId !== selectedWorkspace)
         return false;
       return true;
     });
-  }, [invoices, selectedStatuses, selectedWorkspace]);
+  }, [liveInvoices, selectedStatuses, selectedWorkspace]);
 
-  const overdueInvoices = invoices.filter(
+  const overdueInvoices = liveInvoices.filter(
     (inv) => inv.status === "OVERDUE"
   );
 
-  const totalOutstanding = invoices
+  const totalOutstanding = liveInvoices
     .filter(
       (inv) => inv.status === "SENT" || inv.status === "OVERDUE"
     )
@@ -138,7 +173,7 @@ export function InvoicesPageClient({
 
   const now = new Date(getRenderNowMs());
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-  const paidThisMonth = invoices
+  const paidThisMonth = liveInvoices
     .filter(
       (inv) =>
         inv.status === "PAID" &&
@@ -147,7 +182,7 @@ export function InvoicesPageClient({
     )
     .reduce((sum, inv) => sum + inv.amount, 0);
 
-  const totalInvoices = invoices.length;
+  const totalInvoices = liveInvoices.length;
 
   function getItemsSummary(items: unknown): string | null {
     if (!items) return null;
@@ -166,17 +201,23 @@ export function InvoicesPageClient({
 
   return (
     <div className="min-h-screen bg-background">
-      <div className="mx-auto max-w-[1400px] px-4 py-8 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-[1400px] px-3 py-6 sm:px-6 lg:px-8">
         {/* Header */}
         <div className="mb-6">
-          <h1 className="text-2xl font-semibold tracking-tight">Invoices</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
+          <h1 className="text-xl sm:text-2xl font-semibold tracking-tight">Invoices</h1>
+          <p className="mt-1 text-xs sm:text-sm text-muted-foreground">
             Invoice tracking and overdue management
+          </p>
+          <p className="mt-1 text-[11px] text-muted-foreground">
+            Live:{" "}
+            <span className={liveConnected ? "text-emerald-400" : "text-amber-400"}>
+              {liveConnected ? "connected" : "reconnecting"}
+            </span>
           </p>
         </div>
 
         {/* Stats */}
-        <div className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="mb-8 grid grid-cols-2 gap-2 sm:gap-4 lg:grid-cols-4">
           <InvoiceStatCard
             icon={DollarSign}
             label="Total Outstanding"
@@ -269,7 +310,7 @@ export function InvoicesPageClient({
         </div>
 
         {/* All Invoices Table */}
-        <div className="mb-8 rounded-lg border border-border/50 bg-card">
+        <div className="mb-8 rounded-lg border border-border/50 bg-card overflow-x-auto">
           <div className="flex items-center gap-2 border-b border-border/50 px-4 py-3">
             <FileText className="size-4 text-muted-foreground" />
             <h3 className="text-sm font-medium">All Invoices</h3>
@@ -277,12 +318,12 @@ export function InvoicesPageClient({
               {filtered.length} invoice{filtered.length !== 1 ? "s" : ""}
             </span>
           </div>
-          <Table>
+          <Table className="min-w-[980px]">
             <TableHeader>
               <TableRow className="hover:bg-transparent">
                 <TableHead>Status</TableHead>
-                <TableHead>Invoice #</TableHead>
                 <TableHead>Customer</TableHead>
+                <TableHead>Invoice #</TableHead>
                 <TableHead className="text-right">Amount</TableHead>
                 <TableHead>Due Date</TableHead>
                 <TableHead>Paid</TableHead>
@@ -310,17 +351,20 @@ export function InvoicesPageClient({
                         {inv.status}
                       </Badge>
                     </TableCell>
-                    <TableCell className="text-sm font-mono text-muted-foreground">
-                      {inv.invoiceNumber ?? "—"}
-                    </TableCell>
                     <TableCell>
                       <div>
-                        <p className="text-sm font-medium">
+                        <p className="text-sm font-medium text-foreground">
                           {inv.customerName}
+                        </p>
+                        <p className="text-[11px] text-muted-foreground">
+                          {inv.workspace?.name ?? "Internal"}
                         </p>
                         {itemsSummary && (
                           <p className="text-xs text-muted-foreground truncate max-w-48">
                             {itemsSummary}
+                    <TableCell className="text-sm font-mono text-muted-foreground">
+                      {inv.invoiceNumber ?? "—"}
+                    </TableCell>
                           </p>
                         )}
                       </div>
@@ -365,9 +409,7 @@ export function InvoicesPageClient({
                           })
                         : "—"}
                     </TableCell>
-                    <TableCell className="text-sm text-muted-foreground">
-                      {inv.workspace?.name ?? "—"}
-                    </TableCell>
+                    <TableCell className="text-sm text-muted-foreground">{inv.workspace?.name ?? "Internal"}</TableCell>
                     <TableCell>
                       <div className="flex items-center gap-1">
                         {inv.status !== "PAID" &&
@@ -403,7 +445,7 @@ export function InvoicesPageClient({
 
         {/* Overdue Summary */}
         {overdueInvoices.length > 0 && (
-          <div className="rounded-lg border border-red-500/20 bg-red-500/5">
+          <div className="rounded-lg border border-red-500/20 bg-red-500/5 overflow-x-auto">
             <div className="flex items-center gap-2 border-b border-red-500/20 px-4 py-3">
               <AlertTriangle className="size-4 text-red-400" />
               <h3 className="text-sm font-medium text-red-400">
@@ -413,11 +455,11 @@ export function InvoicesPageClient({
                 {formatCurrency(overdueAmount)} total overdue
               </span>
             </div>
-            <Table>
+            <Table className="min-w-[860px]">
               <TableHeader>
                 <TableRow className="hover:bg-transparent border-red-500/10">
-                  <TableHead>Invoice #</TableHead>
                   <TableHead>Customer</TableHead>
+                  <TableHead>Invoice #</TableHead>
                   <TableHead className="text-right">Amount</TableHead>
                   <TableHead>Due Date</TableHead>
                   <TableHead>Days Overdue</TableHead>
@@ -436,13 +478,13 @@ export function InvoicesPageClient({
 
                   return (
                     <TableRow key={inv.id} className="border-red-500/10">
-                      <TableCell className="text-sm font-mono text-red-300">
-                        {inv.invoiceNumber ?? "—"}
-                      </TableCell>
                       <TableCell>
                         <p className="text-sm font-medium">
                           {inv.customerName}
                         </p>
+                      </TableCell>
+                      <TableCell className="text-sm font-mono text-red-300">
+                        {inv.invoiceNumber ?? "—"}
                       </TableCell>
                       <TableCell className="text-right text-sm font-semibold text-red-400">
                         {formatCurrency(inv.amount)}
@@ -510,20 +552,20 @@ function InvoiceStatCard({
 }) {
   return (
     <Card>
-      <CardContent className="flex items-center gap-4 pt-6">
+      <CardContent className="flex items-center gap-2 p-3 sm:gap-4 sm:p-6">
         <div
           className={cn(
-            "flex size-10 items-center justify-center rounded-lg",
+            "flex size-8 sm:size-10 items-center justify-center rounded-lg",
             iconBgClassName
           )}
         >
-          <Icon className={cn("size-5", iconClassName)} />
+          <Icon className={cn("size-4 sm:size-5", iconClassName)} />
         </div>
         <div>
-          <p className="text-xs font-medium text-muted-foreground">{label}</p>
+          <p className="text-[10px] sm:text-xs font-medium text-muted-foreground">{label}</p>
           <p
             className={cn(
-              "text-xl font-semibold tracking-tight",
+              "text-base sm:text-xl font-semibold tracking-tight",
               valueClassName
             )}
           >

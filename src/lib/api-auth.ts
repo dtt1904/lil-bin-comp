@@ -28,12 +28,18 @@ export interface AuthContext {
   organizationId: string;
 }
 
+function resolveApiKey(req: NextRequest): string | null {
+  return (
+    req.headers.get("x-api-key") ||
+    req.headers.get("authorization")?.replace("Bearer ", "") ||
+    req.nextUrl.searchParams.get("apiKey")
+  );
+}
+
 export function authenticateRequest(
   req: NextRequest
 ): { ok: true; ctx: AuthContext } | { ok: false; response: NextResponse } {
-  const apiKey =
-    req.headers.get("x-api-key") ||
-    req.headers.get("authorization")?.replace("Bearer ", "");
+  const apiKey = resolveApiKey(req);
 
   if (!apiKey || apiKey !== INTERNAL_API_KEY) {
     return {
@@ -50,6 +56,36 @@ export function authenticateRequest(
 
   const organizationId =
     req.headers.get("x-organization-id") || "org-1";
+
+  return {
+    ok: true,
+    ctx: { apiKey, organizationId },
+  };
+}
+
+export function authenticateStreamRequest(
+  req: NextRequest
+): { ok: true; ctx: AuthContext } | { ok: false; response: NextResponse } {
+  const apiKey = resolveApiKey(req);
+
+  if (!apiKey || apiKey !== INTERNAL_API_KEY) {
+    return {
+      ok: false,
+      response: NextResponse.json(
+        {
+          error: "unauthorized",
+          message:
+            "Missing or invalid API key. Provide x-api-key header or apiKey query param.",
+        },
+        { status: 401 }
+      ),
+    };
+  }
+
+  const organizationId =
+    req.headers.get("x-organization-id") ||
+    req.nextUrl.searchParams.get("organizationId") ||
+    "org-1";
 
   return {
     ok: true,

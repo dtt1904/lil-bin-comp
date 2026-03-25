@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { LayoutList, Kanban, X } from "lucide-react";
 import { getStatusColor, getPriorityColor } from "@/lib/helpers";
 import { Button } from "@/components/ui/button";
@@ -9,6 +9,8 @@ import { TaskKanban } from "@/components/tasks/task-kanban";
 import type { SerializedTask } from "@/components/tasks/task-card";
 import { cn } from "@/lib/utils";
 import { CreateTaskModal } from "@/components/forms/create-task-modal";
+import { streamUrl } from "@/lib/live-stream";
+import { api } from "@/lib/api-client";
 
 const ALL_STATUSES = [
   "BACKLOG",
@@ -29,6 +31,8 @@ interface TasksPageClientProps {
 }
 
 export function TasksPageClient({ tasks, workspaces }: TasksPageClientProps) {
+  const [liveTasks, setLiveTasks] = useState<SerializedTask[]>(tasks);
+  const [liveConnected, setLiveConnected] = useState(false);
   const [view, setView] = useState<"table" | "board">("table");
   const [selectedStatuses, setSelectedStatuses] = useState<Set<string>>(new Set());
   const [selectedPriority, setSelectedPriority] = useState<string | null>(null);
@@ -51,14 +55,46 @@ export function TasksPageClient({ tasks, workspaces }: TasksPageClientProps) {
 
   const hasFilters = selectedStatuses.size > 0 || selectedPriority || selectedWorkspace;
 
+  useEffect(() => {
+    setLiveTasks(tasks);
+  }, [tasks]);
+
+  useEffect(() => {
+    if (typeof EventSource === "undefined") {
+      const id = setInterval(async () => {
+        const res = await api<SerializedTask[]>("/tasks?limit=120");
+        if (res.ok && res.data) {
+          setLiveConnected(false);
+          setLiveTasks(res.data);
+        }
+      }, 5000);
+      return () => clearInterval(id);
+    }
+
+    const es = new EventSource(streamUrl("/tasks"));
+    es.addEventListener("connected", () => setLiveConnected(true));
+    es.addEventListener("tasks", (event) => {
+      try {
+        const payload = JSON.parse((event as MessageEvent).data);
+        if (payload?.data) {
+          setLiveTasks(payload.data as SerializedTask[]);
+        }
+      } catch {
+        // ignore malformed frames
+      }
+    });
+    es.onerror = () => setLiveConnected(false);
+    return () => es.close();
+  }, []);
+
   const filtered = useMemo(() => {
-    return tasks.filter((t) => {
+    return liveTasks.filter((t) => {
       if (selectedStatuses.size > 0 && !selectedStatuses.has(t.status)) return false;
       if (selectedPriority && t.priority !== selectedPriority) return false;
       if (selectedWorkspace && t.workspaceId !== selectedWorkspace) return false;
       return true;
     });
-  }, [tasks, selectedStatuses, selectedPriority, selectedWorkspace]);
+  }, [liveTasks, selectedStatuses, selectedPriority, selectedWorkspace]);
 
   return (
     <div className="min-h-screen bg-background">
@@ -69,6 +105,12 @@ export function TasksPageClient({ tasks, workspaces }: TasksPageClientProps) {
             <h1 className="text-xl sm:text-2xl font-semibold tracking-tight">Tasks</h1>
             <p className="mt-0.5 text-xs sm:text-sm text-muted-foreground">
               {filtered.length} task{filtered.length !== 1 ? "s" : ""} across all workspaces
+            </p>
+            <p className="mt-1 text-[11px] text-muted-foreground">
+              Live:{" "}
+              <span className={liveConnected ? "text-emerald-400" : "text-amber-400"}>
+                {liveConnected ? "connected" : "reconnecting"}
+              </span>
             </p>
           </div>
           <div className="flex items-center gap-2 sm:gap-3">

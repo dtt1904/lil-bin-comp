@@ -49,9 +49,9 @@ export function TaskCard({ task }: { task: SerializedTask }) {
           <Badge variant="outline" className={cn("text-[10px]", getPriorityColor(task.priority))}>
             {task.priority}
           </Badge>
-          {task.workspace && (
-            <span className="text-[10px] text-muted-foreground">{task.workspace.name}</span>
-          )}
+          <span className="text-[10px] text-muted-foreground">
+            {task.workspace?.name ?? "Internal"}
+          </span>
         </div>
 
         <div className="flex items-center justify-between">
