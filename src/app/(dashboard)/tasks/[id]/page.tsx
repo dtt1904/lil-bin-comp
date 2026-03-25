@@ -30,6 +30,37 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
+import type { Prisma } from "@/generated/prisma/client";
+import { DEFAULT_ORGANIZATION_ID } from "@/lib/default-organization";
+
+async function safe<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
+  try {
+    return await fn();
+  } catch (err) {
+    console.error("[task-detail] query failed:", err);
+    return fallback;
+  }
+}
+
+const TASK_DETAIL_INCLUDE = {
+  assigneeAgent: true,
+  workspace: true,
+  project: true,
+  department: true,
+  createdByUser: true,
+  taskRuns: { include: { agent: true }, orderBy: { startedAt: "desc" as const } },
+  comments: {
+    include: { authorUser: true, authorAgent: true },
+    orderBy: { createdAt: "asc" as const },
+  },
+  approvals: { include: { requestedBy: true, reviewedBy: true } },
+  logEvents: { orderBy: { createdAt: "desc" as const }, take: 20 },
+  artifacts: { orderBy: { createdAt: "desc" as const } },
+  dependsOn: { include: { dependsOn: true } },
+  requiredByTasks: { include: { task: true } },
+} satisfies Prisma.TaskInclude;
+
+type TaskDetail = Prisma.TaskGetPayload<{ include: typeof TASK_DETAIL_INCLUDE }>;
 
 const RUN_STATUS_COLOR: Record<string, string> = {
   STARTED: "bg-blue-500/15 text-blue-400 border-blue-500/20",
@@ -65,29 +96,209 @@ export default async function TaskDetailPage({
 }) {
   const { id } = await params;
 
-  const task = await prisma.task.findUnique({
-    where: { id },
-    include: {
-      assigneeAgent: true,
-      workspace: true,
-      project: true,
-      department: true,
-      createdByUser: true,
-      taskRuns: { include: { agent: true }, orderBy: { startedAt: "desc" } },
-      comments: {
-        include: { authorUser: true, authorAgent: true },
-        orderBy: { createdAt: "asc" },
-      },
-      approvals: { include: { requestedBy: true, reviewedBy: true } },
-      logEvents: { orderBy: { createdAt: "desc" }, take: 20 },
-      artifacts: { orderBy: { createdAt: "desc" } },
-      dependsOn: { include: { dependsOn: true } },
-      requiredByTasks: { include: { task: true } },
-    },
-  });
+  const whereOrg = { id, organizationId: DEFAULT_ORGANIZATION_ID };
+
+  let task: TaskDetail | null = null;
+
+  try {
+    task = await prisma.task.findFirst({
+      where: whereOrg,
+      include: TASK_DETAIL_INCLUDE,
+    });
+  } catch (err) {
+    console.error("[task-detail] query failed:", err);
+    let basic: Prisma.TaskGetPayload<{
+      select: {
+        id: true;
+        title: true;
+        description: true;
+        status: true;
+        priority: true;
+        dueDate: true;
+        labels: true;
+        createdAt: true;
+        updatedAt: true;
+        organizationId: true;
+        assigneeAgentId: true;
+        workspaceId: true;
+        departmentId: true;
+        projectId: true;
+        createdByUserId: true;
+      };
+    }> | null = null;
+    try {
+      basic = await prisma.task.findFirst({
+        where: whereOrg,
+        select: {
+          id: true,
+          title: true,
+          description: true,
+          status: true,
+          priority: true,
+          dueDate: true,
+          labels: true,
+          createdAt: true,
+          updatedAt: true,
+          organizationId: true,
+          assigneeAgentId: true,
+          workspaceId: true,
+          departmentId: true,
+          projectId: true,
+          createdByUserId: true,
+        },
+      });
+    } catch (e2) {
+      console.error("[task-detail] query failed:", e2);
+      notFound();
+    }
+    if (!basic) {
+      notFound();
+    }
+
+    const b = basic;
+
+    const [
+      assigneeAgent,
+      workspace,
+      department,
+      project,
+      createdByUser,
+      taskRuns,
+      comments,
+      approvals,
+      logEvents,
+      artifacts,
+      dependsOn,
+      requiredByTasks,
+    ] = await Promise.all([
+      safe(
+        () =>
+          b.assigneeAgentId
+            ? prisma.agent.findFirst({
+                where: {
+                  id: b.assigneeAgentId,
+                  organizationId: DEFAULT_ORGANIZATION_ID,
+                },
+              })
+            : Promise.resolve(null),
+        null
+      ),
+      safe(
+        () =>
+          b.workspaceId
+            ? prisma.workspace.findFirst({
+                where: { id: b.workspaceId, organizationId: DEFAULT_ORGANIZATION_ID },
+              })
+            : Promise.resolve(null),
+        null
+      ),
+      safe(
+        () =>
+          b.departmentId
+            ? prisma.department.findFirst({
+                where: { id: b.departmentId, organizationId: DEFAULT_ORGANIZATION_ID },
+              })
+            : Promise.resolve(null),
+        null
+      ),
+      safe(
+        () =>
+          b.projectId
+            ? prisma.project.findFirst({
+                where: { id: b.projectId, organizationId: DEFAULT_ORGANIZATION_ID },
+              })
+            : Promise.resolve(null),
+        null
+      ),
+      safe(
+        () =>
+          b.createdByUserId
+            ? prisma.user.findFirst({
+                where: { id: b.createdByUserId, organizationId: DEFAULT_ORGANIZATION_ID },
+              })
+            : Promise.resolve(null),
+        null
+      ),
+      safe(
+        () =>
+          prisma.taskRun.findMany({
+            where: { taskId: b.id },
+            include: { agent: true },
+            orderBy: { startedAt: "desc" },
+          }),
+        []
+      ),
+      safe(
+        () =>
+          prisma.comment.findMany({
+            where: { taskId: b.id },
+            include: { authorUser: true, authorAgent: true },
+            orderBy: { createdAt: "asc" },
+          }),
+        []
+      ),
+      safe(
+        () =>
+          prisma.approval.findMany({
+            where: { taskId: b.id },
+            include: { requestedBy: true, reviewedBy: true },
+          }),
+        []
+      ),
+      safe(
+        () =>
+          prisma.logEvent.findMany({
+            where: { taskId: b.id },
+            orderBy: { createdAt: "desc" },
+            take: 20,
+          }),
+        []
+      ),
+      safe(
+        () =>
+          prisma.artifact.findMany({
+            where: { taskId: b.id },
+            orderBy: { createdAt: "desc" },
+          }),
+        []
+      ),
+      safe(
+        () =>
+          prisma.taskDependency.findMany({
+            where: { taskId: b.id },
+            include: { dependsOn: true },
+          }),
+        []
+      ),
+      safe(
+        () =>
+          prisma.taskDependency.findMany({
+            where: { dependsOnTaskId: b.id },
+            include: { task: true },
+          }),
+        []
+      ),
+    ]);
+
+    task = {
+      ...b,
+      assigneeAgent,
+      workspace,
+      department,
+      project,
+      createdByUser,
+      taskRuns,
+      comments,
+      approvals,
+      logEvents,
+      artifacts,
+      dependsOn,
+      requiredByTasks,
+    } as TaskDetail;
+  }
 
   if (!task) {
-    return notFound();
+    notFound();
   }
 
   const agent = task.assigneeAgent;

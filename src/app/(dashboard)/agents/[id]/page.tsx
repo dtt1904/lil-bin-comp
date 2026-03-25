@@ -32,6 +32,7 @@ import {
 } from "@/components/ui/table";
 import { Separator } from "@/components/ui/separator";
 import { prisma } from "@/lib/db";
+import { DEFAULT_ORGANIZATION_ID } from "@/lib/default-organization";
 import {
   formatRelativeTime,
   formatCurrency,
@@ -44,6 +45,15 @@ import {
 import { cn } from "@/lib/utils";
 import { AgentHeader } from "@/components/agents/agent-header";
 
+async function safe<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
+  try {
+    return await fn();
+  } catch (err) {
+    console.error("[agent-detail] query failed:", err);
+    return fallback;
+  }
+}
+
 export default async function AgentDetailPage({
   params,
 }: {
@@ -51,17 +61,47 @@ export default async function AgentDetailPage({
 }) {
   const { id } = await params;
 
-  const agent = await prisma.agent.findUnique({
-    where: { id },
-    include: {
-      workspace: { select: { id: true, name: true } },
-      department: { select: { name: true } },
-    },
-  });
+  const agentWhere = { id, organizationId: DEFAULT_ORGANIZATION_ID };
+
+  let agent: Awaited<
+    ReturnType<
+      typeof prisma.agent.findFirst<{
+        include: {
+          workspace: { select: { id: true; name: true } };
+          department: { select: { name: true } };
+        };
+      }>
+    >
+  >;
+
+  try {
+    const stub = await prisma.agent.findFirst({
+      where: agentWhere,
+      select: { id: true },
+    });
+    if (!stub) {
+      notFound();
+    }
+
+    agent = await prisma.agent.findFirst({
+      where: agentWhere,
+      include: {
+        workspace: { select: { id: true, name: true } },
+        department: { select: { name: true } },
+      },
+    });
+  } catch (err) {
+    console.error("[agent-detail] main agent query failed:", err);
+    notFound();
+  }
 
   if (!agent) {
     notFound();
   }
+
+  const emptyCostAgg = {
+    _sum: { cost: null as number | null, tokensInput: null as number | null, tokensOutput: null as number | null },
+  };
 
   const [
     agentTasks,
@@ -72,34 +112,58 @@ export default async function AgentDetailPage({
     heartbeat,
     permissions,
   ] = await Promise.all([
-    prisma.task.findMany({
-      where: { assigneeAgentId: id },
-      orderBy: { updatedAt: "desc" },
-      take: 10,
-    }),
-    prisma.taskRun.count({ where: { agentId: id } }),
-    prisma.logEvent.findMany({
-      where: { agentId: id },
-      orderBy: { createdAt: "desc" },
-      take: 8,
-    }),
-    prisma.costRecord.aggregate({
-      where: { agentId: id },
-      _sum: { cost: true, tokensInput: true, tokensOutput: true },
-    }),
-    prisma.taskRun.count({ where: { agentId: id } }),
-    prisma.agentHeartbeat.findFirst({
-      where: { agentId: id },
-      orderBy: { createdAt: "desc" },
-    }),
-    prisma.agentPermission.findMany({
-      where: { agentId: id },
-    }),
+    safe(
+      () =>
+        prisma.task.findMany({
+          where: { assigneeAgentId: id },
+          orderBy: { updatedAt: "desc" },
+          take: 10,
+        }),
+      []
+    ),
+    safe(() => prisma.taskRun.count({ where: { agentId: id } }), 0),
+    safe(
+      () =>
+        prisma.logEvent.findMany({
+          where: { agentId: id },
+          orderBy: { createdAt: "desc" },
+          take: 8,
+        }),
+      []
+    ),
+    safe(
+      () =>
+        prisma.costRecord.aggregate({
+          where: { agentId: id },
+          _sum: { cost: true, tokensInput: true, tokensOutput: true },
+        }),
+      emptyCostAgg
+    ),
+    safe(() => prisma.taskRun.count({ where: { agentId: id } }), 0),
+    safe(
+      () =>
+        prisma.agentHeartbeat.findFirst({
+          where: { agentId: id },
+          orderBy: { createdAt: "desc" },
+        }),
+      null
+    ),
+    safe(
+      () =>
+        prisma.agentPermission.findMany({
+          where: { agentId: id },
+        }),
+      []
+    ),
   ]);
 
-  const totalTaskCount = await prisma.task.count({
-    where: { assigneeAgentId: id },
-  });
+  const totalTaskCount = await safe(
+    () =>
+      prisma.task.count({
+        where: { assigneeAgentId: id },
+      }),
+    0
+  );
 
   const currentTask = agentTasks.find((t) => t.status === "RUNNING");
 

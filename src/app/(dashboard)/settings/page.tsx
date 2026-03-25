@@ -3,30 +3,51 @@ import { prisma } from "@/lib/db";
 import { SettingsPageClient } from "./_client";
 
 export default async function SettingsPage() {
+  const organizationsP = prisma.organization.findMany({ take: 1 });
+  const integrationsP = prisma.integration.findMany({
+    include: { workspace: { select: { name: true } } },
+    orderBy: { createdAt: "desc" },
+  });
+  const moduleInstallationsP = prisma.moduleInstallation.findMany({
+    include: { workspace: { select: { name: true } } },
+    orderBy: { createdAt: "desc" },
+  });
+  const usersP = prisma.user.findMany({
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      role: true,
+      createdAt: true,
+    },
+    orderBy: { createdAt: "asc" },
+  });
+  const workspacesP = prisma.workspace.findMany({
+    select: { id: true, name: true, type: true },
+    orderBy: { name: "asc" },
+  });
+
   const [organizations, integrations, moduleInstallations, users, workspaces] =
     await Promise.all([
-      prisma.organization.findMany({ take: 1 }),
-      prisma.integration.findMany({
-        include: { workspace: { select: { name: true } } },
-        orderBy: { createdAt: "desc" },
+      organizationsP.catch((err) => {
+        console.error("[settings] organizations query failed:", err);
+        return [] as Awaited<typeof organizationsP>;
       }),
-      prisma.moduleInstallation.findMany({
-        include: { workspace: { select: { name: true } } },
-        orderBy: { createdAt: "desc" },
+      integrationsP.catch((err) => {
+        console.error("[settings] integrations query failed:", err);
+        return [] as Awaited<typeof integrationsP>;
       }),
-      prisma.user.findMany({
-        select: {
-          id: true,
-          name: true,
-          email: true,
-          role: true,
-          createdAt: true,
-        },
-        orderBy: { createdAt: "asc" },
+      moduleInstallationsP.catch((err) => {
+        console.error("[settings] moduleInstallations query failed:", err);
+        return [] as Awaited<typeof moduleInstallationsP>;
       }),
-      prisma.workspace.findMany({
-        select: { id: true, name: true, type: true },
-        orderBy: { name: "asc" },
+      usersP.catch((err) => {
+        console.error("[settings] users query failed:", err);
+        return [] as Awaited<typeof usersP>;
+      }),
+      workspacesP.catch((err) => {
+        console.error("[settings] workspaces query failed:", err);
+        return [] as Awaited<typeof workspacesP>;
       }),
     ]);
 

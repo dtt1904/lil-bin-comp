@@ -3,33 +3,50 @@ import { prisma } from "@/lib/db";
 import { ContentPageClient } from "./_client";
 
 export default async function ContentPage() {
-  const [drafts, shareTasks, workspaces, listings] = await Promise.all([
-    prisma.postDraft.findMany({
-      include: {
-        listing: { select: { address: true } },
-        createdByAgent: { select: { name: true } },
-        workspace: { select: { name: true } },
-      },
-      orderBy: { createdAt: "desc" },
-    }),
-    prisma.shareTask.findMany({
-      include: {
-        postDraft: {
-          select: {
-            content: true,
-            workspace: { select: { name: true } },
-          },
+  const draftsP = prisma.postDraft.findMany({
+    include: {
+      listing: { select: { address: true } },
+      createdByAgent: { select: { name: true } },
+      workspace: { select: { name: true } },
+    },
+    orderBy: { createdAt: "desc" },
+  });
+  const shareTasksP = prisma.shareTask.findMany({
+    include: {
+      postDraft: {
+        select: {
+          content: true,
+          workspace: { select: { name: true } },
         },
       },
-      orderBy: { createdAt: "desc" },
+    },
+    orderBy: { createdAt: "desc" },
+  });
+  const workspacesP = prisma.workspace.findMany({
+    select: { id: true, name: true },
+    orderBy: { name: "asc" },
+  });
+  const listingsP = prisma.listing.findMany({
+    select: { id: true, address: true },
+    orderBy: { address: "asc" },
+  });
+
+  const [drafts, shareTasks, workspaces, listings] = await Promise.all([
+    draftsP.catch((err) => {
+      console.error("[modules/content] drafts query failed:", err);
+      return [] as Awaited<typeof draftsP>;
     }),
-    prisma.workspace.findMany({
-      select: { id: true, name: true },
-      orderBy: { name: "asc" },
+    shareTasksP.catch((err) => {
+      console.error("[modules/content] shareTasks query failed:", err);
+      return [] as Awaited<typeof shareTasksP>;
     }),
-    prisma.listing.findMany({
-      select: { id: true, address: true },
-      orderBy: { address: "asc" },
+    workspacesP.catch((err) => {
+      console.error("[modules/content] workspaces query failed:", err);
+      return [] as Awaited<typeof workspacesP>;
+    }),
+    listingsP.catch((err) => {
+      console.error("[modules/content] listings query failed:", err);
+      return [] as Awaited<typeof listingsP>;
     }),
   ]);
 

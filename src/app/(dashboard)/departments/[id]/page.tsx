@@ -1,4 +1,5 @@
 export const dynamic = "force-dynamic";
+import type { Prisma } from "@/generated/prisma/client";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import {
@@ -35,6 +36,19 @@ import { cn } from "@/lib/utils";
 
 const ACTIVE_TASK_STATUSES = ["RUNNING", "QUEUED", "BLOCKED", "AWAITING_APPROVAL"];
 
+type DepartmentDetail = Prisma.DepartmentGetPayload<{
+  include: {
+    workspace: { select: { id: true; name: true } };
+    manager: true;
+    agents: { include: { assignedTasks: { select: { id: true; status: true } } } };
+    tasks: {
+      include: { assigneeAgent: { select: { id: true; name: true } } };
+      orderBy: { updatedAt: "desc" };
+    };
+    projects: { include: { tasks: { select: { id: true; status: true } } } };
+  };
+}>;
+
 export default async function DepartmentDetailPage({
   params,
 }: {
@@ -42,31 +56,58 @@ export default async function DepartmentDetailPage({
 }) {
   const { id } = await params;
 
-  const dept = await prisma.department.findUnique({
-    where: { id },
-    include: {
-      workspace: { select: { id: true, name: true } },
-      manager: true,
-      agents: {
-        include: {
-          assignedTasks: { select: { id: true, status: true } },
+  let dept: DepartmentDetail | null = null;
+  try {
+    dept = await prisma.department.findUnique({
+      where: { id },
+      include: {
+        workspace: { select: { id: true, name: true } },
+        manager: true,
+        agents: {
+          include: {
+            assignedTasks: { select: { id: true, status: true } },
+          },
+        },
+        tasks: {
+          include: {
+            assigneeAgent: { select: { id: true, name: true } },
+          },
+          orderBy: { updatedAt: "desc" },
+        },
+        projects: {
+          include: {
+            tasks: { select: { id: true, status: true } },
+          },
         },
       },
-      tasks: {
+    });
+  } catch (err) {
+    console.error("[department-detail] query failed:", err);
+    try {
+      const lighter = await prisma.department.findUnique({
+        where: { id },
         include: {
-          assigneeAgent: { select: { id: true, name: true } },
+          workspace: { select: { id: true, name: true } },
+          manager: true,
+          agents: true,
+          tasks: { orderBy: { updatedAt: "desc" } },
+          projects: true,
         },
-        orderBy: { updatedAt: "desc" },
-      },
-      projects: {
-        include: {
-          tasks: { select: { id: true, status: true } },
-        },
-      },
-    },
-  });
+      });
+      if (lighter) {
+        dept = {
+          ...lighter,
+          agents: lighter.agents.map((a) => ({ ...a, assignedTasks: [] })),
+          tasks: lighter.tasks.map((t) => ({ ...t, assigneeAgent: null })),
+          projects: lighter.projects.map((p) => ({ ...p, tasks: [] })),
+        } as DepartmentDetail;
+      }
+    } catch {
+      notFound();
+    }
+  }
 
-  if (!dept) return notFound();
+  if (!dept) notFound();
 
   const deptAgents = dept.agents;
   const deptTasks = dept.tasks;

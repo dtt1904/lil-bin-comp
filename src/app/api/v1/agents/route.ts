@@ -54,8 +54,12 @@ export async function GET(req: NextRequest) {
     ]);
 
     return jsonResponse({ data: results, meta: { total, limit, offset } });
-  } catch {
-    return errorResponse("Internal error", 500);
+  } catch (err) {
+    console.error("[agents] operation failed:", err);
+    return errorResponse(
+      `Failed: ${err instanceof Error ? err.message : "unknown"}`,
+      500
+    );
   }
 }
 
@@ -66,7 +70,8 @@ export async function POST(req: NextRequest) {
   let body: Record<string, unknown>;
   try {
     body = await req.json();
-  } catch {
+  } catch (err) {
+    console.error("[agents] operation failed:", err);
     return errorResponse("Invalid JSON body", 400);
   }
 
@@ -126,8 +131,12 @@ export async function POST(req: NextRequest) {
           field: "workspaceId",
         });
       }
-    } catch {
-      return errorResponse("Internal error", 500);
+    } catch (err) {
+      console.error("[agents] operation failed:", err);
+      return errorResponse(
+        `Failed: ${err instanceof Error ? err.message : "unknown"}`,
+        500
+      );
     }
   }
 
@@ -141,8 +150,12 @@ export async function POST(req: NextRequest) {
           field: "departmentId",
         });
       }
-    } catch {
-      return errorResponse("Internal error", 500);
+    } catch (err) {
+      console.error("[agents] operation failed:", err);
+      return errorResponse(
+        `Failed: ${err instanceof Error ? err.message : "unknown"}`,
+        500
+      );
     }
   }
 
@@ -167,10 +180,14 @@ export async function POST(req: NextRequest) {
     });
 
     return jsonResponse({ data: agent }, 201);
-  } catch (e: any) {
-    if (e.code === "P2002") {
+  } catch (err: any) {
+    console.error("[agents] operation failed:", err);
+    if (err.code === "P2002") {
       return errorResponse(`Agent with slug "${slug}" already exists`, 409);
     }
-    return errorResponse("Internal error", 500);
+    return errorResponse(
+      `Failed: ${err instanceof Error ? err.message : "unknown"}`,
+      500
+    );
   }
 }

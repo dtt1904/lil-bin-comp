@@ -61,8 +61,12 @@ export async function GET(
         agents,
       },
     });
-  } catch {
-    return errorResponse("Internal error", 500);
+  } catch (err) {
+    console.error("[projects] operation failed:", err);
+    return errorResponse(
+      `Failed: ${err instanceof Error ? err.message : "unknown"}`,
+      500
+    );
   }
 }
 
@@ -78,7 +82,8 @@ export async function PATCH(
   let body: Record<string, unknown>;
   try {
     body = await req.json();
-  } catch {
+  } catch (err) {
+    console.error("[projects] operation failed:", err);
     return errorResponse("Invalid JSON body", 400);
   }
 
@@ -109,8 +114,12 @@ export async function PATCH(
           field: "workspaceId",
         });
       }
-    } catch {
-      return errorResponse("Internal error", 500);
+    } catch (err) {
+      console.error("[projects] operation failed:", err);
+      return errorResponse(
+        `Failed: ${err instanceof Error ? err.message : "unknown"}`,
+        500
+      );
     }
   }
 
@@ -129,11 +138,15 @@ export async function PATCH(
     });
 
     return jsonResponse({ data: updated });
-  } catch (e: any) {
-    if (e.code === "P2025") return errorResponse("Project not found", 404);
-    if (e.code === "P2002")
+  } catch (err: any) {
+    console.error("[projects] operation failed:", err);
+    if (err.code === "P2025") return errorResponse("Project not found", 404);
+    if (err.code === "P2002")
       return errorResponse("Unique constraint violation", 409);
-    return errorResponse("Internal error", 500);
+    return errorResponse(
+      `Failed: ${err instanceof Error ? err.message : "unknown"}`,
+      500
+    );
   }
 }
 
@@ -149,8 +162,12 @@ export async function DELETE(
   try {
     await prisma.project.delete({ where: { id } });
     return jsonResponse({ success: true });
-  } catch (e: any) {
-    if (e.code === "P2025") return errorResponse("Project not found", 404);
-    return errorResponse("Internal error", 500);
+  } catch (err: any) {
+    console.error("[projects] operation failed:", err);
+    if (err.code === "P2025") return errorResponse("Project not found", 404);
+    return errorResponse(
+      `Failed: ${err instanceof Error ? err.message : "unknown"}`,
+      500
+    );
   }
 }

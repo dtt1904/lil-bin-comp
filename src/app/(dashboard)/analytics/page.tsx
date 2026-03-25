@@ -3,19 +3,36 @@ import { prisma } from "@/lib/db";
 import { AnalyticsPageClient } from "./_client";
 
 export default async function AnalyticsPage() {
+  const costRecordsP = prisma.costRecord.findMany({
+    include: {
+      agent: { select: { name: true } },
+      workspace: { select: { name: true } },
+    },
+    orderBy: { createdAt: "desc" },
+  });
+  const agentsP = prisma.agent.findMany({ select: { id: true, name: true } });
+  const workspacesP = prisma.workspace.findMany({ select: { id: true, name: true } });
+  const taskRunsP = prisma.taskRun.findMany({
+    where: { status: "COMPLETED" },
+    select: { cost: true },
+  });
+
   const [costRecords, agents, workspaces, taskRuns] = await Promise.all([
-    prisma.costRecord.findMany({
-      include: {
-        agent: { select: { name: true } },
-        workspace: { select: { name: true } },
-      },
-      orderBy: { createdAt: "desc" },
+    costRecordsP.catch((err) => {
+      console.error("[analytics] costRecords query failed:", err);
+      return [] as Awaited<typeof costRecordsP>;
     }),
-    prisma.agent.findMany({ select: { id: true, name: true } }),
-    prisma.workspace.findMany({ select: { id: true, name: true } }),
-    prisma.taskRun.findMany({
-      where: { status: "COMPLETED" },
-      select: { cost: true },
+    agentsP.catch((err) => {
+      console.error("[analytics] agents query failed:", err);
+      return [] as Awaited<typeof agentsP>;
+    }),
+    workspacesP.catch((err) => {
+      console.error("[analytics] workspaces query failed:", err);
+      return [] as Awaited<typeof workspacesP>;
+    }),
+    taskRunsP.catch((err) => {
+      console.error("[analytics] taskRuns query failed:", err);
+      return [] as Awaited<typeof taskRunsP>;
     }),
   ]);
 

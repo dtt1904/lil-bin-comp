@@ -3,17 +3,26 @@ import { prisma } from "@/lib/db";
 import { ListingsPageClient } from "./_client";
 
 export default async function ListingsPage() {
+  const listingsP = prisma.listing.findMany({
+    include: {
+      assignedAgent: { select: { id: true, name: true } },
+      workspace: { select: { id: true, name: true } },
+    },
+    orderBy: { createdAt: "desc" },
+  });
+  const workspacesP = prisma.workspace.findMany({
+    select: { id: true, name: true },
+    orderBy: { name: "asc" },
+  });
+
   const [listings, workspaces] = await Promise.all([
-    prisma.listing.findMany({
-      include: {
-        assignedAgent: { select: { id: true, name: true } },
-        workspace: { select: { id: true, name: true } },
-      },
-      orderBy: { createdAt: "desc" },
+    listingsP.catch((err) => {
+      console.error("[modules/listings] listings query failed:", err);
+      return [] as Awaited<typeof listingsP>;
     }),
-    prisma.workspace.findMany({
-      select: { id: true, name: true },
-      orderBy: { name: "asc" },
+    workspacesP.catch((err) => {
+      console.error("[modules/listings] workspaces query failed:", err);
+      return [] as Awaited<typeof workspacesP>;
     }),
   ]);
 

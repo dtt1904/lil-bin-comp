@@ -17,12 +17,16 @@ const PROJECT_STATUS_COLOR: Record<string, string> = {
 };
 
 export default async function ProjectsPage() {
-  const projects = await prisma.project.findMany({
+  const projectsP = prisma.project.findMany({
     include: {
       workspace: { select: { id: true, name: true } },
       tasks: { select: { id: true, status: true } },
     },
     orderBy: { createdAt: "desc" },
+  });
+  const projects = await projectsP.catch((err) => {
+    console.error("[projects] projects query failed:", err);
+    return [] as Awaited<typeof projectsP>;
   });
 
   return (

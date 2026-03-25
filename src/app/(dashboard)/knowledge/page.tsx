@@ -3,25 +3,38 @@ import { prisma } from "@/lib/db";
 import { KnowledgePageClient } from "./_client";
 
 export default async function KnowledgeCenterPage() {
+  const memoriesP = prisma.memoryEntry.findMany({
+    include: {
+      workspace: { select: { name: true } },
+      ownerAgent: { select: { name: true } },
+    },
+    orderBy: { createdAt: "desc" },
+  });
+  const sopsP = prisma.sOPDocument.findMany({
+    include: {
+      workspace: { select: { name: true } },
+    },
+    orderBy: { updatedAt: "desc" },
+  });
+  const promptsP = prisma.promptTemplate.findMany({
+    include: {
+      workspace: { select: { name: true } },
+    },
+    orderBy: { createdAt: "desc" },
+  });
+
   const [memories, sops, prompts] = await Promise.all([
-    prisma.memoryEntry.findMany({
-      include: {
-        workspace: { select: { name: true } },
-        ownerAgent: { select: { name: true } },
-      },
-      orderBy: { createdAt: "desc" },
+    memoriesP.catch((err) => {
+      console.error("[knowledge] memories query failed:", err);
+      return [] as Awaited<typeof memoriesP>;
     }),
-    prisma.sOPDocument.findMany({
-      include: {
-        workspace: { select: { name: true } },
-      },
-      orderBy: { updatedAt: "desc" },
+    sopsP.catch((err) => {
+      console.error("[knowledge] sops query failed:", err);
+      return [] as Awaited<typeof sopsP>;
     }),
-    prisma.promptTemplate.findMany({
-      include: {
-        workspace: { select: { name: true } },
-      },
-      orderBy: { createdAt: "desc" },
+    promptsP.catch((err) => {
+      console.error("[knowledge] prompts query failed:", err);
+      return [] as Awaited<typeof promptsP>;
     }),
   ]);
 

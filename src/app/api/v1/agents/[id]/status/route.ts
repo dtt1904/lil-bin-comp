@@ -21,7 +21,8 @@ export async function PATCH(
   let body: Record<string, unknown>;
   try {
     body = await req.json();
-  } catch {
+  } catch (err) {
+    console.error("[agents/:id/status] operation failed:", err);
     return errorResponse("Invalid JSON body", 400);
   }
 
@@ -77,8 +78,12 @@ export async function PATCH(
         logEvent,
       },
     });
-  } catch (e: any) {
-    if (e.code === "P2025") return errorResponse("Agent not found", 404);
-    return errorResponse("Internal error", 500);
+  } catch (err: any) {
+    console.error("[agents/:id/status] operation failed:", err);
+    if (err.code === "P2025") return errorResponse("Agent not found", 404);
+    return errorResponse(
+      `Failed: ${err instanceof Error ? err.message : "unknown"}`,
+      500
+    );
   }
 }

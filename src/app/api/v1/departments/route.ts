@@ -39,8 +39,12 @@ export async function GET(req: NextRequest) {
     ]);
 
     return jsonResponse({ data: results, meta: { total, limit, offset } });
-  } catch {
-    return errorResponse("Internal error", 500);
+  } catch (err) {
+    console.error("[departments] operation failed:", err);
+    return errorResponse(
+      `Failed: ${err instanceof Error ? err.message : "unknown"}`,
+      500
+    );
   }
 }
 
@@ -51,7 +55,8 @@ export async function POST(req: NextRequest) {
   let body: Record<string, unknown>;
   try {
     body = await req.json();
-  } catch {
+  } catch (err) {
+    console.error("[departments] operation failed:", err);
     return errorResponse("Invalid JSON body", 400);
   }
 
@@ -97,13 +102,17 @@ export async function POST(req: NextRequest) {
     });
 
     return jsonResponse({ data: department }, 201);
-  } catch (e: any) {
-    if (e.code === "P2002") {
+  } catch (err: any) {
+    if (err.code === "P2002") {
       return errorResponse(
         "Department with this slug already exists in workspace",
         409
       );
     }
-    return errorResponse("Internal error", 500);
+    console.error("[departments] operation failed:", err);
+    return errorResponse(
+      `Failed: ${err instanceof Error ? err.message : "unknown"}`,
+      500
+    );
   }
 }

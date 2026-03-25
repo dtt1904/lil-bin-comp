@@ -1,4 +1,5 @@
 export const dynamic = "force-dynamic";
+import type { Prisma } from "@/generated/prisma/client";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import {
@@ -40,6 +41,25 @@ const PROJECT_STATUS_COLOR: Record<string, string> = {
   ARCHIVED: "bg-zinc-500/15 text-zinc-400 border-zinc-500/20",
 };
 
+type ProjectDetail = Prisma.ProjectGetPayload<{
+  include: {
+    workspace: { select: { id: true; name: true } };
+    tasks: {
+      include: {
+        assigneeAgent: {
+          select: { id: true; name: true; slug: true; status: true; model: true };
+        };
+        taskRuns: { select: { id: true; cost: true } };
+      };
+      orderBy: { updatedAt: "desc" };
+    };
+    artifacts: {
+      include: { agent: { select: { id: true; name: true } } };
+      orderBy: { createdAt: "desc" };
+    };
+  };
+}>;
+
 export default async function ProjectDetailPage({
   params,
 }: {
@@ -47,28 +67,56 @@ export default async function ProjectDetailPage({
 }) {
   const { id } = await params;
 
-  const project = await prisma.project.findUnique({
-    where: { id },
-    include: {
-      workspace: { select: { id: true, name: true } },
-      tasks: {
-        include: {
-          assigneeAgent: { select: { id: true, name: true, slug: true, status: true, model: true } },
-          taskRuns: { select: { id: true, cost: true } },
+  let project: ProjectDetail | null = null;
+  try {
+    project = await prisma.project.findUnique({
+      where: { id },
+      include: {
+        workspace: { select: { id: true, name: true } },
+        tasks: {
+          include: {
+            assigneeAgent: { select: { id: true, name: true, slug: true, status: true, model: true } },
+            taskRuns: { select: { id: true, cost: true } },
+          },
+          orderBy: { updatedAt: "desc" },
         },
-        orderBy: { updatedAt: "desc" },
-      },
-      artifacts: {
-        include: {
-          agent: { select: { id: true, name: true } },
+        artifacts: {
+          include: {
+            agent: { select: { id: true, name: true } },
+          },
+          orderBy: { createdAt: "desc" },
         },
-        orderBy: { createdAt: "desc" },
       },
-    },
-  });
+    });
+  } catch (err) {
+    console.error("[project-detail] query failed:", err);
+    try {
+      const lighter = await prisma.project.findUnique({
+        where: { id },
+        include: {
+          workspace: { select: { id: true, name: true } },
+          tasks: { orderBy: { updatedAt: "desc" } },
+          artifacts: { orderBy: { createdAt: "desc" } },
+        },
+      });
+      if (lighter) {
+        project = {
+          ...lighter,
+          tasks: lighter.tasks.map((t) => ({
+            ...t,
+            assigneeAgent: null,
+            taskRuns: [],
+          })),
+          artifacts: lighter.artifacts.map((a) => ({ ...a, agent: null })),
+        } as ProjectDetail;
+      }
+    } catch {
+      notFound();
+    }
+  }
 
   if (!project) {
-    return notFound();
+    notFound();
   }
 
   const workspace = project.workspace;

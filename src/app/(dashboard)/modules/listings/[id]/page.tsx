@@ -1,4 +1,5 @@
 export const dynamic = "force-dynamic";
+import type { Prisma } from "@/generated/prisma/client";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import {
@@ -71,6 +72,21 @@ const MEDIA_TYPE_ICON: Record<string, typeof Camera> = {
   OTHER: ImageIcon,
 };
 
+type ListingDetail = Prisma.ListingGetPayload<{
+  include: {
+    mediaAssets: { orderBy: { sortOrder: "asc" } };
+    postDrafts: {
+      include: {
+        publishedPosts: true;
+        createdByAgent: { select: { id: true; name: true } };
+      };
+      orderBy: { createdAt: "desc" };
+    };
+    assignedAgent: true;
+    workspace: true;
+  };
+}>;
+
 export default async function ListingDetailPage({
   params,
 }: {
@@ -78,21 +94,63 @@ export default async function ListingDetailPage({
 }) {
   const { id } = await params;
 
-  const listing = await prisma.listing.findUnique({
-    where: { id },
-    include: {
-      mediaAssets: { orderBy: { sortOrder: "asc" } },
-      postDrafts: {
-        include: {
-          publishedPosts: true,
-          createdByAgent: { select: { id: true, name: true } },
+  let listing: ListingDetail | null = null;
+  try {
+    listing = await prisma.listing.findUnique({
+      where: { id },
+      include: {
+        mediaAssets: { orderBy: { sortOrder: "asc" } },
+        postDrafts: {
+          include: {
+            publishedPosts: true,
+            createdByAgent: { select: { id: true, name: true } },
+          },
+          orderBy: { createdAt: "desc" },
         },
-        orderBy: { createdAt: "desc" },
+        assignedAgent: true,
+        workspace: true,
       },
-      assignedAgent: true,
-      workspace: true,
-    },
-  });
+    });
+  } catch (err) {
+    console.error("[listing-detail] query failed:", err);
+    try {
+      const lighter = await prisma.listing.findUnique({
+        where: { id },
+        select: {
+          id: true,
+          mlsNumber: true,
+          address: true,
+          city: true,
+          state: true,
+          zipCode: true,
+          price: true,
+          status: true,
+          propertyType: true,
+          bedrooms: true,
+          bathrooms: true,
+          sqft: true,
+          description: true,
+          organizationId: true,
+          workspaceId: true,
+          assignedAgentId: true,
+          tags: true,
+          createdAt: true,
+          updatedAt: true,
+          assignedAgent: true,
+          workspace: true,
+        },
+      });
+      if (lighter) {
+        listing = {
+          ...lighter,
+          mediaAssets: [],
+          postDrafts: [],
+        } as ListingDetail;
+      }
+    } catch {
+      notFound();
+    }
+  }
 
   if (!listing) {
     notFound();

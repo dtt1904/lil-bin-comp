@@ -7,16 +7,25 @@ function serialize(obj: unknown) {
 }
 
 export default async function ApprovalsPage() {
+  const approvalsP = prisma.approval.findMany({
+    include: {
+      requestedBy: { select: { id: true, name: true, slug: true } },
+      reviewedBy: { select: { id: true, name: true } },
+      task: { select: { id: true, title: true, status: true, priority: true, workspaceId: true } },
+    },
+    orderBy: { createdAt: "desc" },
+  });
+  const workspacesP = prisma.workspace.findMany({ select: { id: true, name: true } });
+
   const [approvals, workspaces] = await Promise.all([
-    prisma.approval.findMany({
-      include: {
-        requestedBy: { select: { id: true, name: true, slug: true } },
-        reviewedBy: { select: { id: true, name: true } },
-        task: { select: { id: true, title: true, status: true, priority: true, workspaceId: true } },
-      },
-      orderBy: { createdAt: "desc" },
+    approvalsP.catch((err) => {
+      console.error("[approvals] approvals query failed:", err);
+      return [] as Awaited<typeof approvalsP>;
     }),
-    prisma.workspace.findMany({ select: { id: true, name: true } }),
+    workspacesP.catch((err) => {
+      console.error("[approvals] workspaces query failed:", err);
+      return [] as Awaited<typeof workspacesP>;
+    }),
   ]);
 
   return (
