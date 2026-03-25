@@ -11,6 +11,7 @@ import {
   getWorkspaceTemplate,
   applyWorkspaceTemplate,
 } from "@/lib/workspace-templates";
+import { ensureDefaultOrganization } from "@/lib/ensure-organization";
 
 const VALID_WORKSPACE_TYPES = Object.values(WorkspaceType);
 
@@ -28,6 +29,7 @@ const WORKSPACE_SELECT = {
 export async function GET(req: NextRequest) {
   const auth = authenticateRequest(req);
   if (!auth.ok) return auth.response;
+  await ensureDefaultOrganization();
 
   const { type, limit: rawLimit, offset: rawOffset } = parseSearchParams(req);
 
@@ -72,6 +74,7 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const auth = authenticateRequest(req);
   if (!auth.ok) return auth.response;
+  await ensureDefaultOrganization();
 
   let body: Record<string, unknown>;
   try {

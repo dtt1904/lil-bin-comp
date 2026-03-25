@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { WorkspaceCard } from "@/components/workspaces/workspace-card";
 import { CreateWorkspaceModal } from "@/components/forms/create-workspace-modal";
 import { DEFAULT_ORGANIZATION_ID } from "@/lib/default-organization";
+import { ensureDefaultOrganization } from "@/lib/ensure-organization";
 import { AlertTriangle } from "lucide-react";
 
 type WsRow = {
@@ -16,6 +17,7 @@ type WsRow = {
 };
 
 export default async function WorkspacesPage() {
+  await ensureDefaultOrganization();
   let workspaces: WsRow[] = [];
   let loadError: string | null = null;
 

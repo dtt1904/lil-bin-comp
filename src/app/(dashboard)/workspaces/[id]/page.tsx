@@ -31,6 +31,7 @@ import {
 } from "@/components/ui/table";
 import { prisma } from "@/lib/db";
 import { DEFAULT_ORGANIZATION_ID } from "@/lib/default-organization";
+import { ensureDefaultOrganization } from "@/lib/ensure-organization";
 import {
   formatRelativeTime,
   getStatusColor,
@@ -107,6 +108,7 @@ export default async function WorkspaceDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
+  await ensureDefaultOrganization();
 
   const workspace = await prisma.workspace.findFirst({
     where: { id, organizationId: DEFAULT_ORGANIZATION_ID },
