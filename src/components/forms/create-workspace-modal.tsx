@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Plus, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -25,14 +25,37 @@ import {
 } from "@/components/ui/select";
 import { api, slugify } from "@/lib/api-client";
 
+type TemplateSummary = {
+  id: string;
+  label: string;
+  summary: string;
+  suggestedType: string;
+};
+
 export function CreateWorkspaceModal() {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [name, setName] = useState("");
-  const [type, setType] = useState("INTERNAL");
+  const [type, setType] = useState("CLIENT");
   const [description, setDescription] = useState("");
+  const [templateId, setTemplateId] = useState<string>("");
+  const [templates, setTemplates] = useState<TemplateSummary[]>([]);
+
+  async function loadTemplates() {
+    const res = await api<TemplateSummary[]>("/workspaces/templates");
+    if (res.ok && Array.isArray(res.data)) {
+      setTemplates(res.data);
+    }
+  }
+
+  useEffect(() => {
+    const t = templates.find((x) => x.id === templateId);
+    if (t?.suggestedType === "HQ" || t?.suggestedType === "CLIENT" || t?.suggestedType === "INTERNAL") {
+      setType(t.suggestedType);
+    }
+  }, [templateId, templates]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -49,6 +72,7 @@ export function CreateWorkspaceModal() {
         slug: slugify(name),
         type,
         description: description.trim() || undefined,
+        ...(templateId ? { templateId } : {}),
       }),
     });
     setLoading(false);
@@ -58,13 +82,20 @@ export function CreateWorkspaceModal() {
     }
     setOpen(false);
     setName("");
-    setType("INTERNAL");
+    setType("CLIENT");
     setDescription("");
+    setTemplateId("");
     router.refresh();
   }
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog
+      open={open}
+      onOpenChange={(o) => {
+        setOpen(o);
+        if (o) void loadTemplates();
+      }}
+    >
       <DialogTrigger render={<Button />}>
         <Plus className="h-4 w-4" />
         Create Workspace
@@ -73,7 +104,9 @@ export function CreateWorkspaceModal() {
         <DialogHeader>
           <DialogTitle>Create Workspace</DialogTitle>
           <DialogDescription>
-            Add a new workspace to your organization
+            One workspace per client, company, fanpage, or BU. Departments are
+            only teams inside this workspace — never use them to separate
+            different clients.
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -83,20 +116,44 @@ export function CreateWorkspaceModal() {
               id="ws-name"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="e.g. Acme Realty"
+              placeholder="e.g. THV Insurance Marketing"
               required
             />
           </div>
           <div className="space-y-2">
+            <Label htmlFor="ws-template">Starter template (optional)</Label>
+            <Select
+              value={templateId || "__none__"}
+              onValueChange={(v) => setTemplateId(v === "__none__" ? "" : (v ?? ""))}
+            >
+              <SelectTrigger id="ws-template">
+                <SelectValue placeholder="Blank workspace" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__none__">Blank workspace</SelectItem>
+                {templates.map((t) => (
+                  <SelectItem key={t.id} value={t.id}>
+                    {t.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {templateId ? (
+              <p className="text-xs text-muted-foreground">
+                {templates.find((t) => t.id === templateId)?.summary}
+              </p>
+            ) : null}
+          </div>
+          <div className="space-y-2">
             <Label htmlFor="ws-type">Type</Label>
-            <Select value={type} onValueChange={(v) => setType(v ?? "INTERNAL")}>
-              <SelectTrigger>
+            <Select value={type} onValueChange={(v) => setType(v ?? "CLIENT")}>
+              <SelectTrigger id="ws-type">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="HQ">HQ</SelectItem>
-                <SelectItem value="CLIENT">Client</SelectItem>
-                <SelectItem value="INTERNAL">Internal</SelectItem>
+                <SelectItem value="HQ">HQ (lil_Bin internal)</SelectItem>
+                <SelectItem value="CLIENT">Client / fanpage / BU</SelectItem>
+                <SelectItem value="INTERNAL">Internal (non-client)</SelectItem>
               </SelectContent>
             </Select>
           </div>

@@ -2,9 +2,11 @@ export const dynamic = "force-dynamic";
 import { prisma } from "@/lib/db";
 import { WorkspaceCard } from "@/components/workspaces/workspace-card";
 import { CreateWorkspaceModal } from "@/components/forms/create-workspace-modal";
+import { DEFAULT_ORGANIZATION_ID } from "@/lib/default-organization";
 
 export default async function WorkspacesPage() {
   const workspaces = await prisma.workspace.findMany({
+    where: { organizationId: DEFAULT_ORGANIZATION_ID },
     orderBy: { name: "asc" },
     include: {
       _count: {
@@ -24,7 +26,9 @@ export default async function WorkspacesPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Workspaces</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Manage your workspaces and their resources
+            Each row is a separate client, fanpage, or business unit. Departments
+            live inside a workspace — they are not a substitute for multi-client
+            isolation.
           </p>
         </div>
         <CreateWorkspaceModal />

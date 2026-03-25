@@ -7,6 +7,8 @@ import {
   parseSearchParams,
 } from "@/lib/api-auth";
 import { TaskStatus, TaskPriority, LogLevel, ExecutionTarget } from "@/generated/prisma/enums";
+import { effectiveWorkspaceId } from "@/lib/workspace-request";
+import { assertWorkspaceInOrganization } from "@/lib/workspace-access";
 
 export async function GET(req: NextRequest) {
   const auth = authenticateRequest(req);
@@ -21,7 +23,12 @@ export async function GET(req: NextRequest) {
       organizationId: auth.ctx.organizationId,
     };
 
-    if (params.workspaceId) where.workspaceId = params.workspaceId;
+    const ws = effectiveWorkspaceId(req, params.workspaceId);
+    if (ws) {
+      const gate = await assertWorkspaceInOrganization(ws, auth.ctx.organizationId);
+      if (!gate.ok) return gate.response;
+      where.workspaceId = ws;
+    }
     if (params.projectId) where.projectId = params.projectId;
     if (params.agentId) where.assigneeAgentId = params.agentId;
     if (params.status) where.status = params.status as TaskStatus;
@@ -49,7 +56,12 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const workspace = await prisma.workspace.findUnique({ where: { id: body.workspaceId } });
+    const workspace = await prisma.workspace.findFirst({
+      where: {
+        id: body.workspaceId,
+        organizationId: auth.ctx.organizationId,
+      },
+    });
     if (!workspace) return errorResponse("Workspace not found", 404);
 
     if (body.projectId) {

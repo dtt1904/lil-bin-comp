@@ -17,6 +17,7 @@ export async function GET(req: NextRequest) {
 
   try {
     const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const organizationId = auth.ctx.organizationId;
 
     const [
       organizationCount,
@@ -42,46 +43,57 @@ export async function GET(req: NextRequest) {
       activeListings,
       recentErrors,
     ] = await Promise.all([
-      prisma.organization.count(),
-      prisma.workspace.count(),
-      prisma.department.count(),
-      prisma.user.count(),
-      prisma.agent.count(),
-      prisma.project.count(),
-      prisma.task.count(),
-      prisma.listing.count(),
-      prisma.mediaAsset.count(),
-      prisma.postDraft.count(),
-      prisma.publishedPost.count(),
-      prisma.shareTask.count(),
-      prisma.invoiceSnapshot.count(),
-      prisma.logEvent.count(),
+      prisma.organization.count({ where: { id: organizationId } }),
+      prisma.workspace.count({ where: { organizationId } }),
+      prisma.department.count({ where: { organizationId } }),
+      prisma.user.count({ where: { organizationId } }),
+      prisma.agent.count({ where: { organizationId } }),
+      prisma.project.count({ where: { organizationId } }),
+      prisma.task.count({ where: { organizationId } }),
+      prisma.listing.count({ where: { organizationId } }),
+      prisma.mediaAsset.count({ where: { organizationId } }),
+      prisma.postDraft.count({ where: { organizationId } }),
+      prisma.publishedPost.count({ where: { organizationId } }),
+      prisma.shareTask.count({ where: { organizationId } }),
+      prisma.invoiceSnapshot.count({ where: { organizationId } }),
+      prisma.logEvent.count({ where: { organizationId } }),
       prisma.agent.count({
-        where: { status: { in: [AgentStatus.ONLINE, AgentStatus.BUSY] } },
+        where: {
+          organizationId,
+          status: { in: [AgentStatus.ONLINE, AgentStatus.BUSY] },
+        },
       }),
       prisma.task.count({
-        where: { status: TaskStatus.RUNNING },
+        where: { organizationId, status: TaskStatus.RUNNING },
       }),
       prisma.approval.count({
-        where: { status: ApprovalStatus.PENDING },
+        where: {
+          status: ApprovalStatus.PENDING,
+          requestedBy: { organizationId },
+        },
       }),
       prisma.postDraft.count({
-        where: { status: PostDraftStatus.REVIEW },
+        where: { organizationId, status: PostDraftStatus.REVIEW },
       }),
       prisma.invoiceSnapshot.count({
-        where: { status: InvoiceStatus.OVERDUE },
+        where: { organizationId, status: InvoiceStatus.OVERDUE },
       }),
       prisma.invoiceSnapshot.count({
         where: {
+          organizationId,
           status: InvoiceStatus.SENT,
           dueDate: { lt: new Date() },
         },
       }),
       prisma.listing.count({
-        where: { status: { not: ListingStatus.ARCHIVED } },
+        where: {
+          organizationId,
+          status: { not: ListingStatus.ARCHIVED },
+        },
       }),
       prisma.logEvent.count({
         where: {
+          organizationId,
           level: LogLevel.ERROR,
           createdAt: { gte: oneDayAgo },
         },

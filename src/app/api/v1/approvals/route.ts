@@ -7,6 +7,8 @@ import {
   parseSearchParams,
 } from "@/lib/api-auth";
 import { ApprovalStatus, LogLevel, Severity } from "@/generated/prisma/enums";
+import { effectiveWorkspaceId } from "@/lib/workspace-request";
+import { assertWorkspaceInOrganization } from "@/lib/workspace-access";
 
 export async function GET(req: NextRequest) {
   const auth = authenticateRequest(req);
@@ -17,12 +19,18 @@ export async function GET(req: NextRequest) {
   const offset = parseInt(params.offset || "0", 10) || 0;
 
   try {
-    const where: Record<string, unknown> = {};
+    const where: Record<string, unknown> = {
+      requestedBy: { organizationId: auth.ctx.organizationId },
+    };
 
     if (params.status) where.status = params.status as ApprovalStatus;
     if (params.taskId) where.taskId = params.taskId;
-    if (params.workspaceId) {
-      where.task = { workspaceId: params.workspaceId };
+
+    const ws = effectiveWorkspaceId(req, params.workspaceId);
+    if (ws) {
+      const gate = await assertWorkspaceInOrganization(ws, auth.ctx.organizationId);
+      if (!gate.ok) return gate.response;
+      where.task = { workspaceId: ws };
     }
 
     const [data, total] = await Promise.all([

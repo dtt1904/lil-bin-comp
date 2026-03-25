@@ -19,8 +19,8 @@ export async function GET(
   const { id } = await params;
 
   try {
-    const workspace = await prisma.workspace.findUnique({
-      where: { id },
+    const workspace = await prisma.workspace.findFirst({
+      where: { id, organizationId: auth.ctx.organizationId },
       include: {
         _count: {
           select: { departments: true, agents: true, tasks: true, projects: true },
@@ -81,6 +81,12 @@ export async function PATCH(
   if (description !== undefined) data.description = description;
 
   try {
+    const owns = await prisma.workspace.findFirst({
+      where: { id, organizationId: auth.ctx.organizationId },
+      select: { id: true },
+    });
+    if (!owns) return errorResponse("Workspace not found", 404);
+
     const updated = await prisma.workspace.update({
       where: { id },
       data,
@@ -109,6 +115,12 @@ export async function DELETE(
   const { id } = await params;
 
   try {
+    const owns = await prisma.workspace.findFirst({
+      where: { id, organizationId: auth.ctx.organizationId },
+      select: { id: true },
+    });
+    if (!owns) return errorResponse("Workspace not found", 404);
+
     await prisma.workspace.delete({ where: { id } });
     return jsonResponse({ success: true });
   } catch (e: any) {

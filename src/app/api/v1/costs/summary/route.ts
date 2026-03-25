@@ -1,6 +1,13 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db";
-import { authenticateRequest, jsonResponse, errorResponse } from "@/lib/api-auth";
+import {
+  authenticateRequest,
+  jsonResponse,
+  errorResponse,
+  parseSearchParams,
+} from "@/lib/api-auth";
+import { effectiveWorkspaceId } from "@/lib/workspace-request";
+import { assertWorkspaceInOrganization } from "@/lib/workspace-access";
 
 export async function GET(req: NextRequest) {
   const auth = authenticateRequest(req);
@@ -8,6 +15,13 @@ export async function GET(req: NextRequest) {
 
   try {
     const organizationId = auth.ctx.organizationId;
+    const q = parseSearchParams(req);
+    const ws = effectiveWorkspaceId(req, q.workspaceId);
+    if (ws) {
+      const gate = await assertWorkspaceInOrganization(ws, organizationId);
+      if (!gate.ok) return gate.response;
+    }
+
     const now = new Date();
 
     const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -16,7 +30,9 @@ export async function GET(req: NextRequest) {
     startOfWeek.setDate(startOfWeek.getDate() - dayOfWeek);
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
 
-    const baseWhere = { organizationId };
+    const baseWhere = ws
+      ? { organizationId, workspaceId: ws }
+      : { organizationId };
 
     const [
       totals,

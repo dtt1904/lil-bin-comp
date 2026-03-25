@@ -6,6 +6,8 @@ import {
   errorResponse,
   parseSearchParams,
 } from "@/lib/api-auth";
+import { effectiveWorkspaceId } from "@/lib/workspace-request";
+import { assertWorkspaceInOrganization } from "@/lib/workspace-access";
 
 export async function GET(req: NextRequest) {
   const auth = authenticateRequest(req);
@@ -20,7 +22,12 @@ export async function GET(req: NextRequest) {
       organizationId: auth.ctx.organizationId,
     };
 
-    if (q.workspaceId) where.workspaceId = q.workspaceId;
+    const ws = effectiveWorkspaceId(req, q.workspaceId);
+    if (ws) {
+      const gate = await assertWorkspaceInOrganization(ws, auth.ctx.organizationId);
+      if (!gate.ok) return gate.response;
+      where.workspaceId = ws;
+    }
     if (q.agentId) where.agentId = q.agentId;
     if (q.model) where.model = q.model;
     if (q.provider) where.provider = q.provider;

@@ -7,6 +7,8 @@ import {
   parseSearchParams,
 } from "@/lib/api-auth";
 import { InvoiceStatus } from "@/generated/prisma/enums";
+import { effectiveWorkspaceId } from "@/lib/workspace-request";
+import { assertWorkspaceInOrganization } from "@/lib/workspace-access";
 
 const VALID_STATUSES = Object.values(InvoiceStatus);
 
@@ -19,9 +21,16 @@ export async function GET(req: NextRequest) {
   const offset = parseInt(params.offset || "0", 10) || 0;
 
   try {
-    const where: Record<string, unknown> = {};
+    const where: Record<string, unknown> = {
+      organizationId: auth.ctx.organizationId,
+    };
 
-    if (params.workspaceId) where.workspaceId = params.workspaceId;
+    const ws = effectiveWorkspaceId(req, params.workspaceId);
+    if (ws) {
+      const gate = await assertWorkspaceInOrganization(ws, auth.ctx.organizationId);
+      if (!gate.ok) return gate.response;
+      where.workspaceId = ws;
+    }
     if (params.status) {
       if (!VALID_STATUSES.includes(params.status as InvoiceStatus)) {
         return errorResponse(

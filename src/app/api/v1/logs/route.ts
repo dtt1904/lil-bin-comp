@@ -7,6 +7,8 @@ import {
   parseSearchParams,
 } from "@/lib/api-auth";
 import { LogLevel } from "@/generated/prisma/enums";
+import { effectiveWorkspaceId } from "@/lib/workspace-request";
+import { assertWorkspaceInOrganization } from "@/lib/workspace-access";
 
 export async function GET(req: NextRequest) {
   const auth = authenticateRequest(req);
@@ -21,7 +23,12 @@ export async function GET(req: NextRequest) {
       organizationId: auth.ctx.organizationId,
     };
 
-    if (q.workspaceId) where.workspaceId = q.workspaceId;
+    const ws = effectiveWorkspaceId(req, q.workspaceId);
+    if (ws) {
+      const gate = await assertWorkspaceInOrganization(ws, auth.ctx.organizationId);
+      if (!gate.ok) return gate.response;
+      where.workspaceId = ws;
+    }
     if (q.agentId) where.agentId = q.agentId;
     if (q.taskId) where.taskId = q.taskId;
     if (q.level) where.level = q.level as LogLevel;

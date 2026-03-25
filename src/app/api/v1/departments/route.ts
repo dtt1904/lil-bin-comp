@@ -6,6 +6,8 @@ import {
   parseSearchParams,
 } from "@/lib/api-auth";
 import { prisma } from "@/lib/db";
+import { effectiveWorkspaceId } from "@/lib/workspace-request";
+import { assertWorkspaceInOrganization } from "@/lib/workspace-access";
 
 export async function GET(req: NextRequest) {
   const auth = authenticateRequest(req);
@@ -17,8 +19,15 @@ export async function GET(req: NextRequest) {
     offset: rawOffset,
   } = parseSearchParams(req);
 
-  const where: Record<string, unknown> = {};
-  if (workspaceId) where.workspaceId = workspaceId;
+  const where: Record<string, unknown> = {
+    organizationId: auth.ctx.organizationId,
+  };
+  const ws = effectiveWorkspaceId(req, workspaceId);
+  if (ws) {
+    const gate = await assertWorkspaceInOrganization(ws, auth.ctx.organizationId);
+    if (!gate.ok) return gate.response;
+    where.workspaceId = ws;
+  }
 
   const limit = rawLimit ? parseInt(rawLimit, 10) : 50;
   const offset = rawOffset ? parseInt(rawOffset, 10) : 0;
@@ -61,8 +70,8 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const workspace = await prisma.workspace.findUnique({
-      where: { id: workspaceId! },
+    const workspace = await prisma.workspace.findFirst({
+      where: { id: workspaceId!, organizationId: auth.ctx.organizationId },
     });
     if (!workspace) {
       return errorResponse(`Workspace "${workspaceId}" not found`, 400, {

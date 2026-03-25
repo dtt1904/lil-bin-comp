@@ -7,6 +7,8 @@ import {
   parseSearchParams,
 } from "@/lib/api-auth";
 import { Severity } from "@/generated/prisma/enums";
+import { effectiveWorkspaceId } from "@/lib/workspace-request";
+import { assertWorkspaceInOrganization } from "@/lib/workspace-access";
 
 export async function GET(req: NextRequest) {
   const auth = authenticateRequest(req);
@@ -20,6 +22,13 @@ export async function GET(req: NextRequest) {
     const where: Record<string, unknown> = {
       organizationId: auth.ctx.organizationId,
     };
+
+    const ws = effectiveWorkspaceId(req, params.workspaceId);
+    if (ws) {
+      const gate = await assertWorkspaceInOrganization(ws, auth.ctx.organizationId);
+      if (!gate.ok) return gate.response;
+      where.OR = [{ workspaceId: ws }, { workspaceId: null }];
+    }
 
     if (params.userId) where.userId = params.userId;
     if (params.isRead !== undefined) where.read = params.isRead === "true";

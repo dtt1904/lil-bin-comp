@@ -7,6 +7,8 @@ import {
   parseSearchParams,
 } from "@/lib/api-auth";
 import { ModuleStatus, LogLevel } from "@/generated/prisma/enums";
+import { effectiveWorkspaceId } from "@/lib/workspace-request";
+import { assertWorkspaceInOrganization } from "@/lib/workspace-access";
 
 export async function GET(req: NextRequest) {
   const auth = authenticateRequest(req);
@@ -21,7 +23,12 @@ export async function GET(req: NextRequest) {
       organizationId: auth.ctx.organizationId,
     };
 
-    if (q.workspaceId) where.workspaceId = q.workspaceId;
+    const ws = effectiveWorkspaceId(req, q.workspaceId);
+    if (ws) {
+      const gate = await assertWorkspaceInOrganization(ws, auth.ctx.organizationId);
+      if (!gate.ok) return gate.response;
+      where.workspaceId = ws;
+    }
     if (q.status) where.status = q.status as ModuleStatus;
 
     const [data, total] = await Promise.all([
@@ -53,7 +60,12 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const workspace = await prisma.workspace.findUnique({ where: { id: body.workspaceId } });
+    const workspace = await prisma.workspace.findFirst({
+      where: {
+        id: body.workspaceId,
+        organizationId: auth.ctx.organizationId,
+      },
+    });
     if (!workspace) return errorResponse("Workspace not found", 404);
 
     const duplicate = await prisma.moduleInstallation.findUnique({

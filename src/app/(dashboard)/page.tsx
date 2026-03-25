@@ -6,8 +6,44 @@ import { PendingApprovals } from "@/components/dashboard/pending-approvals";
 import { RecentActivity } from "@/components/dashboard/recent-activity";
 import { CostChart } from "@/components/dashboard/cost-chart";
 import { LiveOverview } from "@/components/dashboard/live-overview";
+import { getDashboardWorkspaceScope } from "@/lib/dashboard-workspace";
+import Link from "next/link";
+import {
+  AgentStatus,
+  ApprovalStatus,
+  TaskRunStatus,
+  TaskStatus,
+} from "@/generated/prisma/enums";
 
 export default async function CommandCenter() {
+  const { organizationId, workspaceId } = await getDashboardWorkspaceScope();
+
+  if (!workspaceId) {
+    return (
+      <div className="mx-auto max-w-[1400px]">
+        <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">
+          Command Center
+        </h1>
+        <p className="mt-2 max-w-lg text-sm text-muted-foreground">
+          lil_Bin is workspace-first: each client, company, fanpage, or business
+          unit should be its own workspace. Create one, then pick it in the sidebar
+          switcher to scope tasks, agents, and costs to that client.
+        </p>
+        <Link
+          href="/workspaces"
+          className="mt-4 inline-flex h-9 items-center rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90"
+        >
+          Go to Workspaces
+        </Link>
+      </div>
+    );
+  }
+
+  const workspace = await prisma.workspace.findFirst({
+    where: { id: workspaceId, organizationId },
+    select: { name: true, slug: true, type: true },
+  });
+
   const today = new Date();
   const todayStart = new Date(
     today.getFullYear(),
@@ -15,21 +51,54 @@ export default async function CommandCenter() {
     today.getDate()
   );
 
+  const org = organizationId;
+  const ws = workspaceId;
+
   const [activeTaskCount, pendingApprovalCount, activeAgentCount, totalAgentCount] =
     await Promise.all([
-      prisma.task.count({ where: { status: { in: ["RUNNING", "QUEUED"] } } }),
-      prisma.approval.count({ where: { status: "PENDING" } }),
-      prisma.agent.count({ where: { status: { in: ["ONLINE", "BUSY"] } } }),
-      prisma.agent.count(),
+      prisma.task.count({
+        where: {
+          organizationId: org,
+          workspaceId: ws,
+          status: { in: [TaskStatus.RUNNING, TaskStatus.QUEUED] },
+        },
+      }),
+      prisma.approval.count({
+        where: {
+          status: ApprovalStatus.PENDING,
+          requestedBy: { organizationId: org },
+          task: { workspaceId: ws },
+        },
+      }),
+      prisma.agent.count({
+        where: {
+          organizationId: org,
+          workspaceId: ws,
+          status: { in: [AgentStatus.ONLINE, AgentStatus.BUSY] },
+        },
+      }),
+      prisma.agent.count({
+        where: { organizationId: org, workspaceId: ws },
+      }),
     ]);
 
   const [todayCostAgg, activeTasks, pendingApprovals] = await Promise.all([
     prisma.costRecord.aggregate({
       _sum: { cost: true },
-      where: { createdAt: { gte: todayStart } },
+      where: {
+        organizationId: org,
+        workspaceId: ws,
+        createdAt: { gte: todayStart },
+      },
     }),
     prisma.task.findMany({
-      where: { status: { in: ["RUNNING", "QUEUED", "BLOCKED"] } },
+      where: {
+        organizationId: org,
+        workspaceId: ws,
+        status: {
+          in: [TaskStatus.RUNNING, TaskStatus.QUEUED, TaskStatus.BLOCKED],
+        },
+      },
       orderBy: { updatedAt: "desc" },
       take: 8,
       include: {
@@ -38,8 +107,13 @@ export default async function CommandCenter() {
       },
     }),
     prisma.approval.findMany({
-      where: { status: "PENDING" },
+      where: {
+        status: ApprovalStatus.PENDING,
+        requestedBy: { organizationId: org },
+        task: { workspaceId: ws },
+      },
       orderBy: { createdAt: "desc" },
+      take: 8,
       include: {
         requestedBy: { select: { name: true } },
         task: { select: { title: true, priority: true } },
@@ -48,47 +122,71 @@ export default async function CommandCenter() {
   ]);
 
   const oneHourAgo = new Date(Date.now() - 3_600_000);
+  const runTaskScope = { organizationId: org, workspaceId: ws };
 
-  const [agents, recentLogs, costRecords, recentRuns, runsCompletedLastHour, runsFailedLastHour] = await Promise.all([
-    prisma.agent.findMany({
-      orderBy: { name: "asc" },
-      include: {
-        assignedTasks: {
-          where: { status: "RUNNING" },
-          take: 1,
-          select: { title: true },
+  const [agents, recentLogs, costRecords, recentRuns, runsCompletedLastHour, runsFailedLastHour] =
+    await Promise.all([
+      prisma.agent.findMany({
+        where: { organizationId: org, workspaceId: ws },
+        orderBy: { name: "asc" },
+        include: {
+          assignedTasks: {
+            where: { status: TaskStatus.RUNNING },
+            take: 1,
+            select: { title: true },
+          },
         },
-      },
-    }),
-    prisma.logEvent.findMany({
-      orderBy: { createdAt: "desc" },
-      take: 8,
-      include: { agent: { select: { name: true } } },
-    }),
-    prisma.costRecord.findMany({
-      where: { createdAt: { gte: new Date(Date.now() - 7 * 86_400_000) } },
-      select: { id: true, cost: true, createdAt: true },
-    }),
-    prisma.taskRun.findMany({
-      orderBy: { startedAt: "desc" },
-      take: 8,
-      select: {
-        id: true,
-        taskId: true,
-        runnerId: true,
-        status: true,
-        error: true,
-        startedAt: true,
-        completedAt: true,
-      },
-    }),
-    prisma.taskRun.count({
-      where: { status: "COMPLETED", completedAt: { gte: oneHourAgo } },
-    }),
-    prisma.taskRun.count({
-      where: { status: { in: ["FAILED", "CANCELLED"] }, completedAt: { gte: oneHourAgo } },
-    }),
-  ]);
+      }),
+      prisma.logEvent.findMany({
+        where: {
+          organizationId: org,
+          OR: [
+            { workspaceId: ws },
+            { task: { workspaceId: ws } },
+            { agent: { workspaceId: ws } },
+          ],
+        },
+        orderBy: { createdAt: "desc" },
+        take: 8,
+        include: { agent: { select: { name: true } } },
+      }),
+      prisma.costRecord.findMany({
+        where: {
+          organizationId: org,
+          workspaceId: ws,
+          createdAt: { gte: new Date(Date.now() - 7 * 86_400_000) },
+        },
+        select: { id: true, cost: true, createdAt: true },
+      }),
+      prisma.taskRun.findMany({
+        where: { task: runTaskScope },
+        orderBy: { startedAt: "desc" },
+        take: 8,
+        select: {
+          id: true,
+          taskId: true,
+          runnerId: true,
+          status: true,
+          error: true,
+          startedAt: true,
+          completedAt: true,
+        },
+      }),
+      prisma.taskRun.count({
+        where: {
+          task: runTaskScope,
+          status: TaskRunStatus.COMPLETED,
+          completedAt: { gte: oneHourAgo },
+        },
+      }),
+      prisma.taskRun.count({
+        where: {
+          task: runTaskScope,
+          status: { in: [TaskRunStatus.FAILED, TaskRunStatus.CANCELLED] },
+          completedAt: { gte: oneHourAgo },
+        },
+      }),
+    ]);
 
   const todayCost = todayCostAgg._sum.cost ?? 0;
 
@@ -145,16 +243,23 @@ export default async function CommandCenter() {
     completedAt: r.completedAt?.toISOString() ?? null,
   }));
 
+  const scopeLabel = workspace
+    ? `${workspace.name} (${workspace.type})`
+    : "this workspace";
+
   return (
     <div className="min-h-screen bg-background">
       <div className="mx-auto max-w-[1400px]">
-        {/* Header */}
         <div className="mb-6 sm:mb-8">
-          <h1 className="text-xl sm:text-2xl font-semibold tracking-tight">
+          <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">
             Command Center
           </h1>
           <p className="mt-1 text-xs sm:text-sm text-muted-foreground">
-            Real-time overview across all workspaces
+            Scoped to <span className="font-medium text-foreground">{scopeLabel}</span>
+            {workspace ? (
+              <span className="text-muted-foreground"> · {workspace.slug}</span>
+            ) : null}
+            . Switch workspace in the sidebar for another client.
           </p>
         </div>
 
@@ -173,7 +278,6 @@ export default async function CommandCenter() {
           }}
         />
 
-        {/* Main Content Grid */}
         <div className="mb-6 grid grid-cols-1 gap-4 sm:gap-6 lg:grid-cols-3">
           <div className="space-y-4 sm:space-y-6 lg:col-span-2">
             <ActiveTasksTable tasks={serializedTasks} />

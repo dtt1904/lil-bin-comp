@@ -31,7 +31,7 @@ export const navSections = [
     ],
   },
   {
-    label: "Organization",
+    label: "Workspace",
     items: [
       { name: "Workspaces", href: "/workspaces", icon: Building2 },
       { name: "Departments", href: "/departments", icon: Network },

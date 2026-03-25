@@ -8,12 +8,14 @@ import { CreateDepartmentModal } from "@/components/forms/create-department-moda
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { getAgentAvatarColor } from "@/lib/helpers";
 import { cn } from "@/lib/utils";
+import { DEFAULT_ORGANIZATION_ID } from "@/lib/default-organization";
 
 const ACTIVE_TASK_STATUSES = ["RUNNING", "QUEUED", "BLOCKED", "AWAITING_APPROVAL"];
 
 export default async function DepartmentsPage() {
   const [departments, workspaces] = await Promise.all([
     prisma.department.findMany({
+      where: { organizationId: DEFAULT_ORGANIZATION_ID },
       include: {
         workspace: { select: { id: true, name: true, type: true } },
         manager: { select: { id: true, name: true } },
@@ -24,6 +26,7 @@ export default async function DepartmentsPage() {
       orderBy: { name: "asc" },
     }),
     prisma.workspace.findMany({
+      where: { organizationId: DEFAULT_ORGANIZATION_ID },
       select: { id: true, name: true, type: true },
       orderBy: { name: "asc" },
     }),
@@ -45,6 +48,7 @@ export default async function DepartmentsPage() {
             </h1>
             <p className="mt-1 text-sm text-muted-foreground">
               {departments.length} departments across {workspaces.length} workspaces
+              — sub-teams inside each client workspace only, not separate clients.
             </p>
           </div>
           <CreateDepartmentModal workspaces={workspaces.map((ws) => ({ id: ws.id, name: ws.name }))} />
