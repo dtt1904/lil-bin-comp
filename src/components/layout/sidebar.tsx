@@ -17,6 +17,7 @@ import {
   FileText,
   Receipt,
   Settings,
+  Megaphone,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { WorkspaceSwitcher } from "./workspace-switcher";
@@ -53,6 +54,7 @@ export const navSections = [
       { name: "Listings", href: "/modules/listings", icon: Home },
       { name: "Content", href: "/modules/content", icon: FileText },
       { name: "Invoices", href: "/modules/invoices", icon: Receipt },
+      { name: "Fanpage", href: "/modules/fanpage", icon: Megaphone },
     ],
   },
   {

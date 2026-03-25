@@ -17,6 +17,9 @@ import {
 } from "../src/lib/runner";
 import type { PrismaClient } from "../src/generated/prisma/client";
 import { ExecutionTarget } from "../src/generated/prisma/enums";
+import { registerFanpageExecutors } from "../src/lib/executors";
+import { startFanpageScheduler } from "../src/lib/fanpage-scheduler";
+import { prisma } from "../src/lib/db";
 
 // ---------------------------------------------------------------------------
 // Demo executor: "system-health-check"
@@ -94,12 +97,16 @@ const defaultExecutor: ExecutorFn = async (task: ClaimedTask) => {
 
 registerExecutor("health-check", healthCheckExecutor);
 registerExecutor("default", defaultExecutor);
+registerFanpageExecutors();
 
 // Parse CLI args
 const args = process.argv.slice(2);
 function getArg(name: string): string | undefined {
   const idx = args.indexOf(`--${name}`);
   return idx >= 0 ? args[idx + 1] : undefined;
+}
+function hasFlag(name: string): boolean {
+  return args.includes(`--${name}`);
 }
 
 const targetArg = getArg("target")?.toUpperCase();
@@ -111,6 +118,16 @@ const target =
       : ExecutionTarget.ANY;
 
 const poll = parseInt(getArg("poll") || "5000", 10);
+
+const noFanpage = hasFlag("no-fanpage");
+const scheduleInterval = parseInt(
+  getArg("fanpage-interval") || "300000",
+  10
+);
+
+if (!noFanpage) {
+  startFanpageScheduler(prisma, scheduleInterval);
+}
 
 runLoop({
   runnerId: `worker-${process.pid}`,
