@@ -19,6 +19,7 @@ import type { PrismaClient } from "../src/generated/prisma/client";
 import { ExecutionTarget } from "../src/generated/prisma/enums";
 import { registerFanpageExecutors } from "../src/lib/executors";
 import { startFanpageScheduler } from "../src/lib/fanpage-scheduler";
+import { registerSupervisorExecutors, startSupervisorScheduler } from "../src/lib/langgraph";
 import { prisma } from "../src/lib/db";
 
 // ---------------------------------------------------------------------------
@@ -98,6 +99,7 @@ const defaultExecutor: ExecutorFn = async (task: ClaimedTask) => {
 registerExecutor("health-check", healthCheckExecutor);
 registerExecutor("default", defaultExecutor);
 registerFanpageExecutors();
+registerSupervisorExecutors();
 
 // Parse CLI args
 const args = process.argv.slice(2);
@@ -127,6 +129,16 @@ const scheduleInterval = parseInt(
 
 if (!noFanpage) {
   startFanpageScheduler(prisma, scheduleInterval);
+}
+
+const noSupervisor = hasFlag("no-supervisor");
+const supervisorInterval = parseInt(
+  getArg("supervisor-interval") || "600000",
+  10
+);
+
+if (!noSupervisor) {
+  startSupervisorScheduler(prisma, supervisorInterval);
 }
 
 runLoop({
