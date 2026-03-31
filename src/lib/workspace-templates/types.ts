@@ -1,4 +1,4 @@
-export type WorkspaceTemplateId = "client_core" | "fanpage_growth";
+export type WorkspaceTemplateId = "client_core" | "fanpage_growth" | "nail_salon";
 
 export interface TemplateDepartment {
   name: string;
