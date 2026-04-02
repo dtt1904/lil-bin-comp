@@ -5,7 +5,7 @@ import { getDashboardWorkspaceScope } from "@/lib/dashboard-workspace";
 import { FanpageClient } from "./_client";
 
 export default async function FanpagePage() {
-  const { workspaceId, organizationId } = await getDashboardWorkspaceScope();
+  const { workspaceId } = await getDashboardWorkspaceScope();
 
   if (!workspaceId) {
     return (
@@ -126,7 +126,6 @@ export default async function FanpagePage() {
 
   return (
     <FanpageClient
-      workspaceId={workspaceId}
       workspaceName={workspace?.name ?? "Unknown"}
       moduleInstalled={!!moduleInstall}
       config={config}

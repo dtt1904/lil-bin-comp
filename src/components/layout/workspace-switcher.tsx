@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Building2, Check, ChevronDown, Loader2 } from "lucide-react";
 import {
@@ -35,35 +35,43 @@ export function WorkspaceSwitcher() {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    const res = await api<WorkspaceRow[]>("/workspaces?limit=100");
-    setLoading(false);
-    if (!res.ok || !res.data) {
-      setList([]);
-      return;
-    }
-    const rows = Array.isArray(res.data) ? res.data : [];
-    setList(rows);
-
-    const fromCookie =
-      typeof document !== "undefined"
-        ? document.cookie.match(/(?:^|; )lilbin_active_workspace=([^;]*)/)?.[1]
-        : undefined;
-    const decoded = fromCookie ? decodeURIComponent(fromCookie) : "";
-    const pick =
-      decoded && rows.some((w) => w.id === decoded)
-        ? decoded
-        : rows[0]?.id ?? null;
-    if (pick) {
-      setActiveId(pick);
-      setActiveWorkspaceCookie(pick);
-    }
-  }, []);
-
   useEffect(() => {
-    void load();
-  }, [load]);
+    let isMounted = true;
+    const loadWorkspaces = async () => {
+      const res = await api<WorkspaceRow[]>("/workspaces?limit=100");
+      if (!isMounted) return;
+
+      if (!res.ok || !res.data) {
+        setList([]);
+        setLoading(false);
+        return;
+      }
+
+      const rows = Array.isArray(res.data) ? res.data : [];
+      setList(rows);
+
+      const fromCookie =
+        typeof document !== "undefined"
+          ? document.cookie.match(/(?:^|; )lilbin_active_workspace=([^;]*)/)?.[1]
+          : undefined;
+      const decoded = fromCookie ? decodeURIComponent(fromCookie) : "";
+      const pick =
+        decoded && rows.some((w) => w.id === decoded)
+          ? decoded
+          : rows[0]?.id ?? null;
+      if (pick) {
+        setActiveId(pick);
+        setActiveWorkspaceCookie(pick);
+      }
+      setLoading(false);
+    };
+
+    void loadWorkspaces();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   const active = list.find((w) => w.id === activeId) ?? null;
 

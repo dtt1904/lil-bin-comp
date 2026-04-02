@@ -104,9 +104,6 @@ export default async function DepartmentsPage() {
                   const activeTasks = dept.tasks.filter((t) =>
                     ACTIVE_TASK_STATUSES.includes(t.status)
                   );
-                  const projectIds = new Set(
-                    dept.tasks.filter((t) => t.projectId).map((t) => t.projectId)
-                  );
 
                   return (
                     <Link key={dept.id} href={`/departments/${dept.id}`}>

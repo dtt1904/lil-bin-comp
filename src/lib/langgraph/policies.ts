@@ -105,7 +105,7 @@ export function classifyFailure(errorMessage: string): ClassifiedFailure {
 // Max concurrent tasks per workspace
 // ---------------------------------------------------------------------------
 
-export function getMaxConcurrentTasks(_workspaceId: string): number {
+export function getMaxConcurrentTasks(): number {
   return 5;
 }
 

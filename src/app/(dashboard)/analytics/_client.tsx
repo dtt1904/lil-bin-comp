@@ -64,6 +64,32 @@ const CHART_COLORS = [
   "#d946ef",
 ];
 
+interface SortHeaderProps {
+  field: SortField;
+  sortField: SortField;
+  onSort: (field: SortField) => void;
+  children: React.ReactNode;
+}
+
+function SortHeader({ field, sortField, onSort, children }: SortHeaderProps) {
+  return (
+    <TableHead
+      className="cursor-pointer select-none hover:text-foreground"
+      onClick={() => onSort(field)}
+    >
+      <span className="inline-flex items-center gap-1">
+        {children}
+        <ArrowUpDown
+          className={cn(
+            "h-3 w-3",
+            sortField === field ? "text-foreground" : "text-muted-foreground/40"
+          )}
+        />
+      </span>
+    </TableHead>
+  );
+}
+
 function CustomTooltip({
   active,
   payload,
@@ -273,33 +299,6 @@ export function AnalyticsPageClient({
       setSortField(field);
       setSortDir("desc");
     }
-  }
-
-  function SortHeader({
-    field,
-    children,
-  }: {
-    field: SortField;
-    children: React.ReactNode;
-  }) {
-    return (
-      <TableHead
-        className="cursor-pointer select-none hover:text-foreground"
-        onClick={() => toggleSort(field)}
-      >
-        <span className="inline-flex items-center gap-1">
-          {children}
-          <ArrowUpDown
-            className={cn(
-              "h-3 w-3",
-              sortField === field
-                ? "text-foreground"
-                : "text-muted-foreground/40"
-            )}
-          />
-        </span>
-      </TableHead>
-    );
   }
 
   return (
@@ -588,12 +587,48 @@ export function AnalyticsPageClient({
           <Table>
             <TableHeader>
               <TableRow>
-                <SortHeader field="createdAt">Date</SortHeader>
-                <SortHeader field="agent">Agent</SortHeader>
-                <SortHeader field="model">Model / Provider</SortHeader>
-                <SortHeader field="tokensInput">Tokens In</SortHeader>
-                <SortHeader field="tokensOutput">Tokens Out</SortHeader>
-                <SortHeader field="cost">Cost</SortHeader>
+                <SortHeader
+                  field="createdAt"
+                  sortField={sortField}
+                  onSort={toggleSort}
+                >
+                  Date
+                </SortHeader>
+                <SortHeader
+                  field="agent"
+                  sortField={sortField}
+                  onSort={toggleSort}
+                >
+                  Agent
+                </SortHeader>
+                <SortHeader
+                  field="model"
+                  sortField={sortField}
+                  onSort={toggleSort}
+                >
+                  Model / Provider
+                </SortHeader>
+                <SortHeader
+                  field="tokensInput"
+                  sortField={sortField}
+                  onSort={toggleSort}
+                >
+                  Tokens In
+                </SortHeader>
+                <SortHeader
+                  field="tokensOutput"
+                  sortField={sortField}
+                  onSort={toggleSort}
+                >
+                  Tokens Out
+                </SortHeader>
+                <SortHeader
+                  field="cost"
+                  sortField={sortField}
+                  onSort={toggleSort}
+                >
+                  Cost
+                </SortHeader>
                 <TableHead>Workspace</TableHead>
               </TableRow>
             </TableHeader>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Plus, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -29,7 +29,7 @@ type TemplateSummary = {
   id: string;
   label: string;
   summary: string;
-  suggestedType: string;
+  suggestedType: "HQ" | "CLIENT" | "INTERNAL";
 };
 
 export function CreateWorkspaceModal() {
@@ -38,7 +38,7 @@ export function CreateWorkspaceModal() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [name, setName] = useState("");
-  const [type, setType] = useState("CLIENT");
+  const [type, setType] = useState<"HQ" | "CLIENT" | "INTERNAL">("CLIENT");
   const [description, setDescription] = useState("");
   const [templateId, setTemplateId] = useState<string>("");
   const [templates, setTemplates] = useState<TemplateSummary[]>([]);
@@ -49,13 +49,6 @@ export function CreateWorkspaceModal() {
       setTemplates(res.data);
     }
   }
-
-  useEffect(() => {
-    const t = templates.find((x) => x.id === templateId);
-    if (t?.suggestedType === "HQ" || t?.suggestedType === "CLIENT" || t?.suggestedType === "INTERNAL") {
-      setType(t.suggestedType);
-    }
-  }, [templateId, templates]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -124,7 +117,16 @@ export function CreateWorkspaceModal() {
             <Label htmlFor="ws-template">Starter template (optional)</Label>
             <Select
               value={templateId || "__none__"}
-              onValueChange={(v) => setTemplateId(v === "__none__" ? "" : (v ?? ""))}
+              onValueChange={(v) => {
+                const nextTemplateId = v === "__none__" || v == null ? "" : v;
+                setTemplateId(nextTemplateId);
+                const suggestedTemplate = templates.find(
+                  (item) => item.id === nextTemplateId
+                );
+                if (suggestedTemplate) {
+                  setType(suggestedTemplate.suggestedType);
+                }
+              }}
             >
               <SelectTrigger id="ws-template">
                 <SelectValue placeholder="Blank workspace" />
@@ -146,7 +148,10 @@ export function CreateWorkspaceModal() {
           </div>
           <div className="space-y-2">
             <Label htmlFor="ws-type">Type</Label>
-            <Select value={type} onValueChange={(v) => setType(v ?? "CLIENT")}>
+            <Select
+              value={type}
+              onValueChange={(v) => setType((v as "HQ" | "CLIENT" | "INTERNAL") ?? "CLIENT")}
+            >
               <SelectTrigger id="ws-type">
                 <SelectValue />
               </SelectTrigger>

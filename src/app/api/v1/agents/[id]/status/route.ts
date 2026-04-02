@@ -6,6 +6,7 @@ import {
 } from "@/lib/api-auth";
 import { prisma } from "@/lib/db";
 import { AgentStatus, LogLevel } from "@/generated/prisma/enums";
+import { getPrismaErrorCode } from "@/lib/prisma-errors";
 
 const VALID_STATUSES = Object.values(AgentStatus);
 
@@ -78,9 +79,10 @@ export async function PATCH(
         logEvent,
       },
     });
-  } catch (err: any) {
+  } catch (err) {
+    const code = getPrismaErrorCode(err);
     console.error("[agents/:id/status] operation failed:", err);
-    if (err.code === "P2025") return errorResponse("Agent not found", 404);
+    if (code === "P2025") return errorResponse("Agent not found", 404);
     return errorResponse(
       `Failed: ${err instanceof Error ? err.message : "unknown"}`,
       500

@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { LayoutList, Kanban, X } from "lucide-react";
 import { getStatusColor, getPriorityColor } from "@/lib/helpers";
-import { Button } from "@/components/ui/button";
 import { TaskTable } from "@/components/tasks/task-table";
 import { TaskKanban } from "@/components/tasks/task-kanban";
 import type { SerializedTask } from "@/components/tasks/task-card";

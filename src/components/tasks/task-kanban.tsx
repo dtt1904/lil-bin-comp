@@ -1,6 +1,5 @@
 "use client";
 
-import { getStatusColor } from "@/lib/helpers";
 import { TaskCard } from "./task-card";
 import type { SerializedTask } from "./task-card";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";

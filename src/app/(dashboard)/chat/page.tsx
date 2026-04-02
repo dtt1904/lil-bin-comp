@@ -28,7 +28,10 @@ export default async function ChatPage() {
     safe(
       () =>
         prisma.conversation.findMany({
-          where: { organizationId },
+          where: {
+            organizationId,
+            ...(workspaceId ? { workspaceId } : {}),
+          },
           orderBy: { updatedAt: "desc" },
           take: 15,
           select: {
@@ -44,10 +47,8 @@ export default async function ChatPage() {
     ),
   ]);
 
-  return (
+    return (
     <ChatInterface
-      organizationId={organizationId}
-      workspaceId={workspaceId}
       workspaces={workspaces}
       recentConversations={recentConversations.map((c) => ({
         id: c.id,

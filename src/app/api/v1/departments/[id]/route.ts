@@ -5,6 +5,7 @@ import {
   errorResponse,
 } from "@/lib/api-auth";
 import { prisma } from "@/lib/db";
+import { getPrismaErrorCode } from "@/lib/prisma-errors";
 
 export async function GET(
   req: NextRequest,
@@ -97,9 +98,10 @@ export async function PATCH(
     });
 
     return jsonResponse({ data: updated });
-  } catch (err: any) {
-    if (err.code === "P2025") return errorResponse("Department not found", 404);
-    if (err.code === "P2002")
+  } catch (err) {
+    const code = getPrismaErrorCode(err);
+    if (code === "P2025") return errorResponse("Department not found", 404);
+    if (code === "P2002")
       return errorResponse("Unique constraint violation", 409);
     console.error("[departments] operation failed:", err);
     return errorResponse(
@@ -121,8 +123,9 @@ export async function DELETE(
   try {
     await prisma.department.delete({ where: { id } });
     return jsonResponse({ success: true });
-  } catch (err: any) {
-    if (err.code === "P2025") return errorResponse("Department not found", 404);
+  } catch (err) {
+    const code = getPrismaErrorCode(err);
+    if (code === "P2025") return errorResponse("Department not found", 404);
     console.error("[departments] operation failed:", err);
     return errorResponse(
       `Failed: ${err instanceof Error ? err.message : "unknown"}`,

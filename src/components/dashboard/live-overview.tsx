@@ -31,6 +31,90 @@ interface LiveOverviewProps {
   };
 }
 
+interface DashboardActivityPayload {
+  activity?: {
+    runningTasks?: number;
+    pendingApprovals?: number;
+    activeAgents?: number;
+  };
+}
+
+interface RunnerRunPayload {
+  id: string;
+  taskId: string;
+  runnerId?: string | null;
+  status?: string;
+  startedAt?: string | null;
+  completedAt?: string | null;
+}
+
+interface RunnerStatusPayload {
+  lastHour?: {
+    completed?: number;
+    failed?: number;
+  };
+  recentRuns?: RunnerRunPayload[];
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object";
+}
+
+function toNumber(value: unknown): number | undefined {
+  return typeof value === "number" ? value : undefined;
+}
+
+function normalizeRuns(runs: unknown): {
+  id: string;
+  taskId: string;
+  runnerId: string | null;
+  status: string;
+  error: string | null;
+  startedAt: string;
+  completedAt: string | null;
+}[] {
+  if (!Array.isArray(runs)) return [];
+  return runs
+    .map((run): LiveOverviewProps["initialRunner"]["runs"][number] | null => {
+      if (!isRecord(run)) return null;
+
+      const id = run.id;
+      const taskId = run.taskId;
+      const status = run.status;
+      const startedAt = run.startedAt;
+      const completedAt = run.completedAt;
+      const error = run.error;
+      const runnerId = "runnerId" in run ? run.runnerId : null;
+
+      if (
+        typeof id !== "string" ||
+        typeof taskId !== "string" ||
+        typeof status !== "string" ||
+        typeof startedAt !== "string"
+      ) {
+        return null;
+      }
+
+      return {
+        id,
+        taskId,
+        runnerId:
+          typeof runnerId === "string" ? runnerId : runnerId === null ? null : null,
+        status,
+        error:
+          typeof error === "string" || error === null
+            ? error
+            : null,
+        startedAt: new Date(startedAt).toISOString(),
+        completedAt:
+          typeof completedAt === "string"
+            ? new Date(completedAt).toISOString()
+            : null,
+      };
+    })
+    .filter((run): run is LiveOverviewProps["initialRunner"]["runs"][number] => run !== null);
+}
+
 export function LiveOverview({ initialStats, initialRunner }: LiveOverviewProps) {
   const [stats, setStats] = useState(initialStats);
   const [runner, setRunner] = useState(initialRunner);
@@ -44,25 +128,29 @@ export function LiveOverview({ initialStats, initialRunner }: LiveOverviewProps)
         ]);
 
         if (statsRes.ok && statsRes.data) {
-          const activity = (statsRes.data as any).activity ?? {};
+          const payload = isRecord(statsRes.data)
+            ? (statsRes.data as DashboardActivityPayload)
+            : {};
+          const activity = payload.activity ?? {};
           setStats((prev) => ({
             ...prev,
-            activeTaskCount: activity.runningTasks ?? prev.activeTaskCount,
-            pendingApprovalCount: activity.pendingApprovals ?? prev.pendingApprovalCount,
-            activeAgentCount: activity.activeAgents ?? prev.activeAgentCount,
+            activeTaskCount:
+              toNumber(activity.runningTasks) ?? prev.activeTaskCount,
+            pendingApprovalCount:
+              toNumber(activity.pendingApprovals) ?? prev.pendingApprovalCount,
+            activeAgentCount:
+              toNumber(activity.activeAgents) ?? prev.activeAgentCount,
           }));
         }
 
         if (runnerRes.ok && runnerRes.data) {
-          const data = runnerRes.data as any;
+          const data = isRecord(runnerRes.data)
+            ? (runnerRes.data as RunnerStatusPayload)
+            : {};
           setRunner({
-            completedLastHour: data.lastHour?.completed ?? 0,
-            failedLastHour: data.lastHour?.failed ?? 0,
-            runs: (data.recentRuns ?? []).map((r: any) => ({
-              ...r,
-              startedAt: new Date(r.startedAt).toISOString(),
-              completedAt: r.completedAt ? new Date(r.completedAt).toISOString() : null,
-            })),
+            completedLastHour: toNumber(data.lastHour?.completed) ?? 0,
+            failedLastHour: toNumber(data.lastHour?.failed) ?? 0,
+            runs: normalizeRuns(data.recentRuns),
           });
         }
       }, 6000);
@@ -72,8 +160,20 @@ export function LiveOverview({ initialStats, initialRunner }: LiveOverviewProps)
     const statsSource = new EventSource(streamUrl("/dashboard"));
     statsSource.addEventListener("dashboard", (event) => {
       try {
-        const payload = JSON.parse((event as MessageEvent).data);
-        if (payload?.data) setStats(payload.data);
+        const raw = JSON.parse((event as MessageEvent).data);
+        if (isRecord(raw) && isRecord(raw.data)) {
+          const payload = raw.data as DashboardActivityPayload;
+          const activity = payload.activity ?? {};
+          setStats((prev) => ({
+            ...prev,
+            activeTaskCount:
+              toNumber(activity.runningTasks) ?? prev.activeTaskCount,
+            pendingApprovalCount:
+              toNumber(activity.pendingApprovals) ?? prev.pendingApprovalCount,
+            activeAgentCount:
+              toNumber(activity.activeAgents) ?? prev.activeAgentCount,
+          }));
+        }
       } catch {
         // noop
       }
@@ -82,16 +182,14 @@ export function LiveOverview({ initialStats, initialRunner }: LiveOverviewProps)
     const runnerSource = new EventSource(streamUrl("/runner"));
     runnerSource.addEventListener("runner", (event) => {
       try {
-        const payload = JSON.parse((event as MessageEvent).data);
-        if (!payload?.data) return;
+        const raw = JSON.parse((event as MessageEvent).data);
+        if (!isRecord(raw) || !isRecord(raw.data)) return;
+
+        const payload = raw.data as RunnerStatusPayload;
         setRunner({
-          completedLastHour: payload.data.lastHour?.completed ?? 0,
-          failedLastHour: payload.data.lastHour?.failed ?? 0,
-          runs: (payload.data.recentRuns ?? []).map((r: any) => ({
-            ...r,
-            startedAt: new Date(r.startedAt).toISOString(),
-            completedAt: r.completedAt ? new Date(r.completedAt).toISOString() : null,
-          })),
+          completedLastHour: toNumber(payload.lastHour?.completed) ?? 0,
+          failedLastHour: toNumber(payload.lastHour?.failed) ?? 0,
+          runs: normalizeRuns(payload.recentRuns),
         });
       } catch {
         // noop

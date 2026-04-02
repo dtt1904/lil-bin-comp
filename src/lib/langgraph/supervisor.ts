@@ -39,15 +39,17 @@ function getLLM(): ChatOpenAI | null {
   });
 }
 
+function getPrismaFromConfig(config?: unknown): PrismaClient | null {
+  return (config as { configurable?: { prisma?: PrismaClient } })?.configurable?.prisma ?? null;
+}
+
 // ---------------------------------------------------------------------------
 // Node: Plan — break objective into tasks
 // ---------------------------------------------------------------------------
 
 async function planNode(
   state: SupervisorStateType,
-  config?: { prisma?: PrismaClient }
 ): Promise<Partial<SupervisorStateType>> {
-  const prisma = config?.prisma;
   const llm = getLLM();
 
   console.log(`[supervisor] Plan node: workspace=${state.workspaceName}, objective="${state.objective}"`);
@@ -154,9 +156,9 @@ function ruleBased_plan(state: SupervisorStateType): PlannedTask[] {
 
 async function executeNode(
   state: SupervisorStateType,
-  config?: { prisma?: PrismaClient }
+  config?: unknown
 ): Promise<Partial<SupervisorStateType>> {
-  const prisma = config?.prisma;
+  const prisma = getPrismaFromConfig(config);
   if (!prisma) {
     return { error: "No Prisma client available" };
   }
@@ -224,9 +226,9 @@ async function executeNode(
 
 async function monitorNode(
   state: SupervisorStateType,
-  config?: { prisma?: PrismaClient }
+  config?: unknown
 ): Promise<Partial<SupervisorStateType>> {
-  const prisma = config?.prisma;
+  const prisma = getPrismaFromConfig(config);
   if (!prisma) {
     return { error: "No Prisma client available" };
   }
@@ -364,10 +366,10 @@ function afterPlan(state: SupervisorStateType): string {
 
 export function buildSupervisorGraph() {
   const graph = new StateGraph(SupervisorState)
-    .addNode("plan", planNode as any)
-    .addNode("execute", executeNode as any)
-    .addNode("monitor", monitorNode as any)
-    .addNode("report", reportNode as any)
+    .addNode("plan", planNode)
+    .addNode("execute", executeNode)
+    .addNode("monitor", monitorNode)
+    .addNode("report", reportNode)
     .addConditionalEdges("__start__", routeByMode)
     .addConditionalEdges("plan", afterPlan)
     .addEdge("execute", "report")

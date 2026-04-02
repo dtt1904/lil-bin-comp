@@ -4,7 +4,6 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import {
   ChevronRight,
-  CalendarDays,
   CheckCircle2,
   AlertTriangle,
   Cpu,
@@ -125,10 +124,6 @@ export default async function ProjectDetailPage({
   const runningCount = projectTasks.filter((t) => t.status === "RUNNING").length;
   const blockedCount = projectTasks.filter((t) => t.status === "BLOCKED").length;
   const progress = projectTasks.length > 0 ? Math.round((completedCount / projectTasks.length) * 100) : 0;
-
-  const projectAgentIds = new Set(
-    projectTasks.map((t) => t.assigneeAgentId).filter((id): id is string => !!id)
-  );
   const projectAgents = projectTasks
     .filter((t) => t.assigneeAgent)
     .map((t) => t.assigneeAgent!)

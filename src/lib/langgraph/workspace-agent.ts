@@ -98,15 +98,19 @@ function getLLM(): ChatOpenAI | null {
   return new ChatOpenAI({ modelName: "gpt-4o", temperature: 0.2, maxTokens: 1536, openAIApiKey: key });
 }
 
+function getPrismaFromConfig(config?: unknown): PrismaClient | null {
+  return (config as { configurable?: { prisma?: PrismaClient } })?.configurable?.prisma ?? null;
+}
+
 // ---------------------------------------------------------------------------
 // Node 1: Load workspace context
 // ---------------------------------------------------------------------------
 
 async function loadContext(
   state: WorkspaceAgentStateType,
-  config?: { prisma?: PrismaClient }
+  config?: unknown
 ): Promise<Partial<WorkspaceAgentStateType>> {
-  const prisma = config?.prisma;
+  const prisma = getPrismaFromConfig(config);
   if (!prisma) return { error: "No database connection" };
 
   const wsId = state.workspaceId;
@@ -214,9 +218,9 @@ function classifyByKeywords(msg: string, ctx: WorkspaceContext | null): Partial<
 
 async function execute(
   state: WorkspaceAgentStateType,
-  config?: { prisma?: PrismaClient }
+  config?: unknown
 ): Promise<Partial<WorkspaceAgentStateType>> {
-  const prisma = config?.prisma;
+  const prisma = getPrismaFromConfig(config);
   if (!prisma) return { error: "No database connection" };
   if (state.intent === "escalate") {
     return {
@@ -230,7 +234,6 @@ async function execute(
 
   const wsId = state.workspaceId;
   const now = new Date();
-  const dayAgo = new Date(now.getTime() - 86400000);
   const weekAgo = new Date(now.getTime() - 7 * 86400000);
   const deptFilter = state.targetDepartment
     ? { department: { slug: state.targetDepartment } }
@@ -420,10 +423,10 @@ function afterUnderstand(state: WorkspaceAgentStateType): string {
 
 export function buildWorkspaceAgentGraph() {
   const graph = new StateGraph(WorkspaceAgentState)
-    .addNode("loadContext", loadContext as any)
-    .addNode("understand", understand as any)
-    .addNode("execute", execute as any)
-    .addNode("respond", respond as any)
+    .addNode("loadContext", loadContext)
+    .addNode("understand", understand)
+    .addNode("execute", execute)
+    .addNode("respond", respond)
     .addEdge("__start__", "loadContext")
     .addEdge("loadContext", "understand")
     .addConditionalEdges("understand", afterUnderstand)

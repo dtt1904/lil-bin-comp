@@ -6,6 +6,7 @@ import {
 } from "@/lib/api-auth";
 import { prisma } from "@/lib/db";
 import { AgentStatus } from "@/generated/prisma/enums";
+import { getPrismaErrorCode } from "@/lib/prisma-errors";
 
 const VALID_STATUSES = Object.values(AgentStatus);
 
@@ -178,10 +179,11 @@ export async function PATCH(
     });
 
     return jsonResponse({ data: updated });
-  } catch (err: any) {
+  } catch (err) {
+    const code = getPrismaErrorCode(err);
     console.error("[agents/:id] operation failed:", err);
-    if (err.code === "P2025") return errorResponse("Agent not found", 404);
-    if (err.code === "P2002") {
+    if (code === "P2025") return errorResponse("Agent not found", 404);
+    if (code === "P2002") {
       return errorResponse(`Agent with slug "${slug}" already exists`, 409);
     }
     return errorResponse(
@@ -203,9 +205,10 @@ export async function DELETE(
   try {
     await prisma.agent.delete({ where: { id } });
     return jsonResponse({ success: true });
-  } catch (err: any) {
+  } catch (err) {
+    const code = getPrismaErrorCode(err);
     console.error("[agents/:id] operation failed:", err);
-    if (err.code === "P2025") return errorResponse("Agent not found", 404);
+    if (code === "P2025") return errorResponse("Agent not found", 404);
     return errorResponse(
       `Failed: ${err instanceof Error ? err.message : "unknown"}`,
       500

@@ -9,7 +9,6 @@ import {
   User,
   Building2,
   ChevronRight,
-  Clock,
   MessageCircle,
   Plus,
 } from "lucide-react";
@@ -40,15 +39,11 @@ interface Workspace {
 }
 
 interface ChatInterfaceProps {
-  organizationId: string;
-  workspaceId: string | null;
   workspaces: Workspace[];
   recentConversations: ConversationSummary[];
 }
 
 export function ChatInterface({
-  organizationId,
-  workspaceId,
   workspaces,
   recentConversations: initialConversations,
 }: ChatInterfaceProps) {
@@ -56,7 +51,7 @@ export function ChatInterface({
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [conversationId, setConversationId] = useState<string | null>(null);
-  const [conversations, setConversations] = useState(initialConversations);
+  const conversations = initialConversations;
   const [chatMode, setChatMode] = useState<"supervisor" | "workspace">("supervisor");
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);

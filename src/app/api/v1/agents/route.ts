@@ -9,6 +9,7 @@ import { prisma } from "@/lib/db";
 import { AgentStatus } from "@/generated/prisma/enums";
 import { effectiveWorkspaceId } from "@/lib/workspace-request";
 import { assertWorkspaceInOrganization } from "@/lib/workspace-access";
+import { getPrismaErrorCode } from "@/lib/prisma-errors";
 
 const VALID_STATUSES = Object.values(AgentStatus);
 
@@ -180,9 +181,10 @@ export async function POST(req: NextRequest) {
     });
 
     return jsonResponse({ data: agent }, 201);
-  } catch (err: any) {
+  } catch (err) {
+    const code = getPrismaErrorCode(err);
     console.error("[agents] operation failed:", err);
-    if (err.code === "P2002") {
+    if (code === "P2002") {
       return errorResponse(`Agent with slug "${slug}" already exists`, 409);
     }
     return errorResponse(

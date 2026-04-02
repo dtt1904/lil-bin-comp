@@ -13,7 +13,7 @@ import { Annotation, StateGraph, END } from "@langchain/langgraph";
 import { ChatOpenAI } from "@langchain/openai";
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import type { PrismaClient } from "../../generated/prisma/client";
-import { runWorkspaceAgent, type WorkspaceAgentStateType } from "./workspace-agent";
+import { runWorkspaceAgent } from "./workspace-agent";
 
 // ---------------------------------------------------------------------------
 // State
@@ -106,15 +106,19 @@ function getLLM(): ChatOpenAI | null {
   return new ChatOpenAI({ modelName: "gpt-4o", temperature: 0.3, maxTokens: 2048, openAIApiKey: key });
 }
 
+function getPrismaFromConfig(config?: unknown): PrismaClient | null {
+  return (config as { configurable?: { prisma?: PrismaClient } })?.configurable?.prisma ?? null;
+}
+
 // ---------------------------------------------------------------------------
 // Node 1: Load all workspaces
 // ---------------------------------------------------------------------------
 
 async function loadWorkspaces(
   state: SupervisorChatStateType,
-  config?: { prisma?: PrismaClient }
+  config?: unknown
 ): Promise<Partial<SupervisorChatStateType>> {
-  const prisma = config?.prisma;
+  const prisma = getPrismaFromConfig(config);
   if (!prisma) return { error: "No database connection" };
 
   const dayAgo = new Date(Date.now() - 86400000);
@@ -234,9 +238,9 @@ function classifyByKeywords(state: SupervisorChatStateType): Partial<SupervisorC
 
 async function execute(
   state: SupervisorChatStateType,
-  config?: { prisma?: PrismaClient }
+  config?: unknown
 ): Promise<Partial<SupervisorChatStateType>> {
-  const prisma = config?.prisma;
+  const prisma = getPrismaFromConfig(config);
   if (!prisma) return { error: "No database connection" };
 
   try {
@@ -292,7 +296,6 @@ async function execute(
       }
 
       case "generate_report": {
-        const dayAgo = new Date(Date.now() - 86400000);
         const weekAgo = new Date(Date.now() - 7 * 86400000);
         const wsReports = [];
         for (const ws of state.allWorkspaces) {
@@ -450,10 +453,10 @@ function afterClassify(state: SupervisorChatStateType): string {
 
 export function buildSupervisorChatGraph() {
   const graph = new StateGraph(SupervisorChatState)
-    .addNode("loadWorkspaces", loadWorkspaces as any)
-    .addNode("classify", classify as any)
-    .addNode("execute", execute as any)
-    .addNode("respond", respond as any)
+    .addNode("loadWorkspaces", loadWorkspaces)
+    .addNode("classify", classify)
+    .addNode("execute", execute)
+    .addNode("respond", respond)
     .addEdge("__start__", "loadWorkspaces")
     .addEdge("loadWorkspaces", "classify")
     .addConditionalEdges("classify", afterClassify)

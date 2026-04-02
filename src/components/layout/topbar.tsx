@@ -6,13 +6,26 @@ import { MobileNav } from "./mobile-nav";
 import { streamUrl } from "@/lib/live-stream";
 import { api } from "@/lib/api-client";
 
+interface NotificationItem {
+  id: string;
+  read?: boolean;
+}
+
+interface NotificationStreamPayload {
+  data?: {
+    unreadCount?: number;
+  };
+}
+
 export function Topbar() {
   const [unreadCount, setUnreadCount] = useState(0);
 
   useEffect(() => {
     if (typeof EventSource === "undefined") {
       const id = setInterval(async () => {
-        const res = await api<any[]>("/notifications?isRead=false&limit=50");
+        const res = await api<NotificationItem[]>(
+          "/notifications?isRead=false&limit=50"
+        );
         if (res.ok && res.data) {
           setUnreadCount(res.data.length);
         }
@@ -23,8 +36,9 @@ export function Topbar() {
     const es = new EventSource(streamUrl("/notifications"));
     es.addEventListener("notifications", (event) => {
       try {
-        const payload = JSON.parse((event as MessageEvent).data);
-        const count = payload?.data?.unreadCount;
+        const parsed = JSON.parse((event as MessageEvent).data);
+        const payload = parsed as NotificationStreamPayload;
+        const count = payload.data?.unreadCount;
         if (typeof count === "number") setUnreadCount(count);
       } catch {
         // ignore

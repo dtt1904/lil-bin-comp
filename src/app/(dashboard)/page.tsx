@@ -131,6 +131,10 @@ export default async function CommandCenter() {
     task: { title: string; priority: string } | null;
   };
 
+  const now = new Date();
+  const oneHourAgo = new Date(now.getTime() - 3_600_000);
+  const oneWeekAgo = new Date(now.getTime() - 7 * 86_400_000);
+
   const [todayCostAgg, activeTasks, pendingApprovals] = await Promise.all([
     safe(
       () =>
@@ -188,7 +192,6 @@ export default async function CommandCenter() {
     ),
   ]);
 
-  const oneHourAgo = new Date(Date.now() - 3_600_000);
   const runTaskScope = { organizationId: org, workspaceId: ws };
 
   type AgentRow = {
@@ -255,7 +258,7 @@ export default async function CommandCenter() {
             where: {
               organizationId: org,
               workspaceId: ws,
-              createdAt: { gte: new Date(Date.now() - 7 * 86_400_000) },
+            createdAt: { gte: oneWeekAgo },
             },
             select: { id: true, cost: true, createdAt: true },
           }),

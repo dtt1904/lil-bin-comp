@@ -1,4 +1,4 @@
-import { PrismaClient } from "../generated/prisma/client";
+import { Prisma, PrismaClient } from "../generated/prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import {
   TaskStatus,
@@ -174,7 +174,7 @@ async function completeRun(
       where: { id: runId },
       data: {
         status: TaskRunStatus.COMPLETED,
-        output: output as any,
+        output: (output as Prisma.InputJsonValue) ?? Prisma.JsonNull,
         tokensUsed: opts?.tokensUsed,
         cost: opts?.cost,
         completedAt: now,

@@ -38,7 +38,6 @@ import {
   formatCurrency,
   getStatusColor,
   getAgentStatusDotColor,
-  getAgentAvatarColor,
   getAgentStatusColor,
   getPriorityColor,
 } from "@/lib/helpers";
@@ -105,7 +104,6 @@ export default async function AgentDetailPage({
 
   const [
     agentTasks,
-    agentRuns,
     agentLogs,
     agentCostsAgg,
     agentRunCount,
@@ -121,7 +119,6 @@ export default async function AgentDetailPage({
         }),
       []
     ),
-    safe(() => prisma.taskRun.count({ where: { agentId: id } }), 0),
     safe(
       () =>
         prisma.logEvent.findMany({

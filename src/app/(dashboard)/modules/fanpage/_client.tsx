@@ -42,7 +42,6 @@ interface TaskItem {
 }
 
 interface FanpageClientProps {
-  workspaceId: string;
   workspaceName: string;
   moduleInstalled: boolean;
   config: Record<string, unknown> | null;
@@ -88,7 +87,6 @@ const LOG_LEVEL_COLORS: Record<string, string> = {
 };
 
 export function FanpageClient({
-  workspaceId,
   workspaceName,
   moduleInstalled,
   config: initialConfig,

@@ -1,10 +1,10 @@
 export function getRenderNowMs(): number {
   if (typeof window !== "undefined") {
-    const w = window as any;
+    const w = window as { __LILBIN_RENDER_NOW__?: number };
     const v = w.__LILBIN_RENDER_NOW__;
     if (typeof v === "number") return v;
   }
-  const g = globalThis as any;
+  const g = globalThis as { __LILBIN_RENDER_NOW__?: number };
   const v = g.__LILBIN_RENDER_NOW__;
   if (typeof v === "number") return v;
   return Date.now();

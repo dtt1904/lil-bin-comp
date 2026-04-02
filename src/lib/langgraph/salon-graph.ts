@@ -93,6 +93,10 @@ function getLLM(): ChatOpenAI | null {
   });
 }
 
+function getPrismaFromConfig(config?: unknown): PrismaClient | null {
+  return (config as { configurable?: { prisma?: PrismaClient } })?.configurable?.prisma ?? null;
+}
+
 // ---------------------------------------------------------------------------
 // Node: Understand request — classify intent
 // ---------------------------------------------------------------------------
@@ -172,9 +176,9 @@ async function checkPermission(
 
 async function executeAction(
   state: SalonAgentStateType,
-  config?: { prisma?: PrismaClient }
+  config?: unknown
 ): Promise<Partial<SalonAgentStateType>> {
-  const prisma = config?.prisma;
+  const prisma = getPrismaFromConfig(config);
   if (!prisma) {
     return { error: "No database connection available" };
   }
@@ -397,10 +401,10 @@ function afterPermissionCheck(state: SalonAgentStateType): string {
 
 export function buildSalonGraph() {
   const graph = new StateGraph(SalonAgentState)
-    .addNode("understand", understandRequest as any)
-    .addNode("permission", checkPermission as any)
-    .addNode("execute", executeAction as any)
-    .addNode("respond", respondNode as any)
+    .addNode("understand", understandRequest)
+    .addNode("permission", checkPermission)
+    .addNode("execute", executeAction)
+    .addNode("respond", respondNode)
     .addEdge("__start__", "understand")
     .addEdge("understand", "permission")
     .addConditionalEdges("permission", afterPermissionCheck)

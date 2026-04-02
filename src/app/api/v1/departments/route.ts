@@ -8,6 +8,7 @@ import {
 import { prisma } from "@/lib/db";
 import { effectiveWorkspaceId } from "@/lib/workspace-request";
 import { assertWorkspaceInOrganization } from "@/lib/workspace-access";
+import { getPrismaErrorCode } from "@/lib/prisma-errors";
 
 export async function GET(req: NextRequest) {
   const auth = authenticateRequest(req);
@@ -102,8 +103,9 @@ export async function POST(req: NextRequest) {
     });
 
     return jsonResponse({ data: department }, 201);
-  } catch (err: any) {
-    if (err.code === "P2002") {
+  } catch (err) {
+    const code = getPrismaErrorCode(err);
+    if (code === "P2002") {
       return errorResponse(
         "Department with this slug already exists in workspace",
         409
