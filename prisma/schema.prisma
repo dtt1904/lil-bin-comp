@@ -238,6 +238,7 @@ model Organization {
   shareTasks          ShareTask[]
   invoiceSnapshots    InvoiceSnapshot[]
   integrationAccounts IntegrationAccount[]
+  conversations       Conversation[]
 }
 
 model Workspace {
@@ -273,6 +274,7 @@ model Workspace {
   shareTasks          ShareTask[]
   invoiceSnapshots    InvoiceSnapshot[]
   integrationAccounts IntegrationAccount[]
+  conversations       Conversation[]
 
   @@unique([slug, organizationId])
   @@index([organizationId])
@@ -974,6 +976,48 @@ model ShareTask {
   @@index([publishedPostId])
   @@index([assignedAgentId])
   @@index([status])
+}
+
+// ─────────────────────────────────────────────
+// Conversations (chat with lil_Bin / workspace agents)
+// ─────────────────────────────────────────────
+
+enum ChatRole {
+  USER
+  ASSISTANT
+  SYSTEM
+}
+
+model Conversation {
+  id             String   @id @default(cuid())
+  title          String?
+  organizationId String
+  workspaceId    String?
+  role           String   @default("ceo")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  workspace    Workspace?   @relation(fields: [workspaceId], references: [id], onDelete: SetNull)
+  messages     ChatMessage[]
+
+  @@index([organizationId])
+  @@index([workspaceId])
+  @@index([createdAt])
+}
+
+model ChatMessage {
+  id             String   @id @default(cuid())
+  conversationId String
+  role           ChatRole
+  content        String   @db.Text
+  metadata       Json?
+  createdAt      DateTime @default(now())
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId])
+  @@index([createdAt])
 }
 
 // ─────────────────────────────────────────────

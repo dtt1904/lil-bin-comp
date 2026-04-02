@@ -8,6 +8,7 @@
 import { registerExecutor, type ClaimedTask, type ExecutorFn } from "../runner";
 import type { PrismaClient } from "../../generated/prisma/client";
 import { runSupervisor } from "./supervisor";
+import { chatWithSupervisor } from "./supervisor-chat";
 
 async function resolveWorkspace(
   prisma: PrismaClient,
@@ -158,6 +159,64 @@ const supervisorReportExecutor: ExecutorFn = async (task, prisma) => {
 };
 
 // ---------------------------------------------------------------------------
+// supervisor:daily-report — end-of-day cross-workspace summary for CEO
+// ---------------------------------------------------------------------------
+
+const supervisorDailyReportExecutor: ExecutorFn = async (task, prisma) => {
+  const orgId = task.organizationId;
+  console.log(`[supervisor:daily-report] Generating daily report for org: ${orgId}`);
+
+  const result = await chatWithSupervisor(prisma, {
+    organizationId: orgId,
+    message: "Cho tôi báo cáo tổng hợp toàn bộ hoạt động hôm nay của tất cả workspaces. Bao gồm: tasks đã hoàn thành, tasks thất bại, bài đăng mới, và bất kỳ vấn đề nào cần chú ý.",
+  });
+
+  await prisma.logEvent.create({
+    data: {
+      level: "INFO",
+      source: "supervisor:daily-report",
+      message: result.response.slice(0, 2000),
+      metadata: {
+        intent: result.intent,
+        workspaces: result.allWorkspaces.length,
+        delegations: result.delegationResults.length,
+      } as Record<string, string | number | boolean | null>,
+      organizationId: orgId,
+      taskId: task.id,
+    },
+  });
+
+  const conv = await prisma.conversation.create({
+    data: {
+      title: `Daily Report — ${new Date().toLocaleDateString("vi-VN")}`,
+      organizationId: orgId,
+      role: "ceo",
+    },
+    select: { id: true },
+  });
+
+  await prisma.chatMessage.create({
+    data: {
+      conversationId: conv.id,
+      role: "ASSISTANT",
+      content: result.response,
+      metadata: {
+        source: "supervisor:daily-report",
+        workspaces: result.allWorkspaces.length,
+      } as Record<string, string | number | boolean | null>,
+    },
+  });
+
+  return {
+    output: {
+      report: result.response.slice(0, 500),
+      conversationId: conv.id,
+      workspacesReported: result.allWorkspaces.length,
+    },
+  };
+};
+
+// ---------------------------------------------------------------------------
 // Registration
 // ---------------------------------------------------------------------------
 
@@ -165,5 +224,6 @@ export function registerSupervisorExecutors(): void {
   registerExecutor("supervisor:plan", supervisorPlanExecutor);
   registerExecutor("supervisor:monitor", supervisorMonitorExecutor);
   registerExecutor("supervisor:report", supervisorReportExecutor);
-  console.log("[executors] Registered supervisor executors: plan, monitor, report");
+  registerExecutor("supervisor:daily-report", supervisorDailyReportExecutor);
+  console.log("[executors] Registered supervisor executors: plan, monitor, report, daily-report");
 }

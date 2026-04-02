@@ -18,6 +18,7 @@ import {
   Receipt,
   Settings,
   Megaphone,
+  MessageCircle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { WorkspaceSwitcher } from "./workspace-switcher";
@@ -27,6 +28,7 @@ export const navSections = [
     label: "Command",
     items: [
       { name: "Command Center", href: "/", icon: LayoutDashboard },
+      { name: "Chat with lil_Bin", href: "/chat", icon: MessageCircle },
       { name: "Tasks", href: "/tasks", icon: CheckSquare },
       { name: "Approvals", href: "/approvals", icon: ShieldCheck },
     ],

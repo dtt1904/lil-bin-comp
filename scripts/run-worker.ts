@@ -17,7 +17,7 @@ import {
 } from "../src/lib/runner";
 import type { PrismaClient } from "../src/generated/prisma/client";
 import { ExecutionTarget } from "../src/generated/prisma/enums";
-import { registerFanpageExecutors, registerSalonExecutors } from "../src/lib/executors";
+import { registerFanpageExecutors, registerSalonExecutors, registerWorkspaceExecutors } from "../src/lib/executors";
 import { startFanpageScheduler } from "../src/lib/fanpage-scheduler";
 import { registerSupervisorExecutors, startSupervisorScheduler } from "../src/lib/langgraph";
 import { prisma } from "../src/lib/db";
@@ -100,6 +100,7 @@ registerExecutor("health-check", healthCheckExecutor);
 registerExecutor("default", defaultExecutor);
 registerFanpageExecutors();
 registerSalonExecutors();
+registerWorkspaceExecutors();
 registerSupervisorExecutors();
 
 // Parse CLI args
